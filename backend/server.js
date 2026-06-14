@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
-import fs from "fs";
+import { MongoClient } from "mongodb";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
@@ -22,6 +22,35 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const API_KEY = process.env.YT_API_KEY;
 const PORT = process.env.PORT || 5000;
 const BASE = "https://www.googleapis.com/youtube/v3";
+const MONGO_USER = process.env.MONGO_USER || "admin";
+const MONGO_PASS = process.env.MONGO_PASS || "mongo123";
+const MONGO_HOST = process.env.MONGO_HOST || "localhost";
+const MONGO_PORT = process.env.MONGO_PORT || "27017";
+const MONGO_DB = process.env.MONGO_DB || "yt-data-web";
+const MONGO_COLL = process.env.MONGO_COLL || "yt-channels";
+const MONGO_URI = `mongodb://${encodeURIComponent(MONGO_USER)}:${encodeURIComponent(MONGO_PASS)}@${MONGO_HOST}:${MONGO_PORT}/?authSource=admin`;
+
+const mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
+let channelCollection = null;
+
+async function initMongo() {
+  try {
+    await mongoClient.connect();
+    channelCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL);
+    console.log("Connected to MongoDB");
+  } catch (err) {
+    console.error("MongoDB connection failed:", err.message);
+  }
+}
+
+await initMongo();
+
+function getChannelCollection() {
+  if (!channelCollection) {
+    throw new Error("MongoDB is not connected");
+  }
+  return channelCollection;
+}
 
 const app = express();
 app.use(cors());
@@ -44,27 +73,81 @@ function handleError(res, err) {
   res.status(500).json({ error: apiMsg || err.message || "Unknown error" });
 }
 
-// ── Load channels.txt ───────────────────────────────────────────────────
-
-function loadChannels() {
-  const file = path.join(__dirname, "channels.txt");
-  const channels = [];
-  if (!fs.existsSync(file)) return channels;
-  const lines = fs.readFileSync(file, "utf-8").split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const idx = trimmed.lastIndexOf(":");
-    if (idx === -1) continue;
-    const name = trimmed.slice(0, idx).trim();
-    const id = trimmed.slice(idx + 1).trim();
-    channels.push({ name, id });
-  }
-  return channels;
+async function loadChannels() {
+  if (!channelCollection) return [];
+  return await getChannelCollection()
+    .find({}, { projection: { _id: 0 } })
+    .sort({ name: 1 })
+    .toArray();
 }
 
-app.get("/api/channels", (req, res) => {
-  res.json(loadChannels());
+app.get("/api/channels", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    res.json(channels);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+app.post("/api/channels", async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Channel name and id are required." });
+    }
+    const coll = getChannelCollection();
+    const existing = await coll.findOne({ id });
+    if (existing) {
+      return res.status(409).json({ error: "A channel with that id already exists." });
+    }
+    const channel = { name, id };
+    await coll.insertOne(channel);
+    res.status(201).json(channel);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+app.put("/api/channels/:currentId", async (req, res) => {
+  try {
+    const currentId = req.params.currentId;
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Channel name and id are required." });
+    }
+    const coll = getChannelCollection();
+    const existing = await coll.findOne({ id: currentId });
+    if (!existing) {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+    if (currentId !== id) {
+      const duplicate = await coll.findOne({ id });
+      if (duplicate) {
+        return res.status(409).json({ error: "A channel with the new id already exists." });
+      }
+    }
+    await coll.updateOne({ id: currentId }, { $set: { name, id } });
+    res.json({ name, id });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+app.delete("/api/channels/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const coll = getChannelCollection();
+    const result = await coll.deleteOne({ id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+    res.json({ deleted: true });
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── Part 1 – Single video details ───────────────────────────────────────

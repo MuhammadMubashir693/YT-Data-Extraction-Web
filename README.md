@@ -10,8 +10,8 @@ yt-tool/
 ├── backend/      # Express API server
 │   ├── server.js
 │   ├── helpers.js
-│   ├── channels.txt   # your saved channels (name:channelId), one per line
-│   └── .env.example
+│   ├── channels.txt   # unused: channel storage is now MongoDB-backed
+│   └── .env
 └── frontend/     # React (Vite) app
     └── src/
 ```
@@ -35,8 +35,7 @@ PORT=5000
 
 (Get an API key from the Google Cloud Console with the YouTube Data API v3 enabled.)
 
-Edit `channels.txt` to add channels you want to appear in the "Search Channel Videos"
-dropdown, one per line, format `Channel Name:UC...channelId`.
+The channel list is stored in MongoDB `test.yt-channels`. Use the Search Channel Videos manager to add, update, or delete saved channels.
 
 Start the backend:
 

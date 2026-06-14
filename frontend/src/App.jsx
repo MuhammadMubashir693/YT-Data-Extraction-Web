@@ -93,14 +93,37 @@ function ChannelSearchTab() {
   const [videos, setVideos] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [manageName, setManageName] = useState("");
+  const [manageId, setManageId] = useState("");
+  const [manageSelectedId, setManageSelectedId] = useState("");
+  const [manageMessage, setManageMessage] = useState("");
+  const [manageLoading, setManageLoading] = useState(false);
+
+  const refreshChannels = async () => {
+    try {
+      const data = await apiGet("channels");
+      setChannels(data);
+      if (data.length) {
+        if (!data.some((c) => c.id === channelId)) {
+          setChannelId(data[0].id);
+        }
+        if (!manageSelectedId || !data.some((c) => c.id === manageSelectedId)) {
+          setManageSelectedId(data[0].id);
+          setManageName(data[0].name);
+          setManageId(data[0].id);
+        }
+      } else {
+        setManageSelectedId("");
+        setManageName("");
+        setManageId("");
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
-    apiGet("channels")
-      .then((data) => {
-        setChannels(data);
-        if (data.length) setChannelId(data[0].id);
-      })
-      .catch(() => {});
+    refreshChannels();
   }, []);
 
   const submit = async (e) => {
@@ -131,6 +154,88 @@ function ChannelSearchTab() {
     }
   };
 
+  const selectManageChannel = (id) => {
+    const channel = channels.find((c) => c.id === id);
+    if (channel) {
+      setManageSelectedId(id);
+      setManageName(channel.name);
+      setManageId(channel.id);
+    }
+  };
+
+  const handleManageError = (message) => {
+    setManageMessage(message);
+    setTimeout(() => setManageMessage(""), 4000);
+  };
+
+  const createChannel = async () => {
+    setManageLoading(true);
+    try {
+      const res = await fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: manageName.trim(), id: manageId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't add channel");
+      await refreshChannels();
+      setManageSelectedId(data.id);
+      setChannelId(data.id);
+      handleManageError("Channel added successfully.");
+    } catch (err) {
+      handleManageError(err.message);
+    } finally {
+      setManageLoading(false);
+    }
+  };
+
+  const updateChannel = async () => {
+    if (!manageSelectedId) {
+      return handleManageError("Select a channel to update.");
+    }
+    setManageLoading(true);
+    try {
+      const res = await fetch(`/api/channels/${encodeURIComponent(manageSelectedId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: manageName.trim(), id: manageId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't update channel");
+      await refreshChannels();
+      setManageSelectedId(data.id);
+      setChannelId(data.id);
+      handleManageError("Channel updated successfully.");
+    } catch (err) {
+      handleManageError(err.message);
+    } finally {
+      setManageLoading(false);
+    }
+  };
+
+  const deleteChannel = async () => {
+    if (!manageSelectedId) {
+      return handleManageError("Select a channel to delete.");
+    }
+    setManageLoading(true);
+    try {
+      const res = await fetch(`/api/channels/${encodeURIComponent(manageSelectedId)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't delete channel");
+      await refreshChannels();
+      if (channelId === manageSelectedId) {
+        setChannelId("");
+      }
+      handleManageError("Channel deleted successfully.");
+    } catch (err) {
+      handleManageError(err.message);
+    } finally {
+      setManageLoading(false);
+    }
+  };
+
   return (
     <div className="panel">
       <form onSubmit={submit}>
@@ -140,18 +245,81 @@ function ChannelSearchTab() {
             <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
               {channels.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {c.name} ({c.id})
                 </option>
               ))}
             </select>
           ) : (
             <input
               type="text"
-              placeholder="Channel ID (add channels in backend/channels.txt for a dropdown)"
+              placeholder="Channel ID (enter manually or add in the manager below)"
               value={channelId}
               onChange={(e) => setChannelId(e.target.value)}
             />
           )}
+        </div>
+
+        <div className="panel" style={{ marginBottom: 20, background: "var(--panel-2)" }}>
+          <h3>Manage saved channels</h3>
+          <div className="field">
+            <label>Saved channels</label>
+            <select
+              value={manageSelectedId}
+              onChange={(e) => selectManageChannel(e.target.value)}
+            >
+              <option value="">-- Select saved channel --</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.id})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Channel name</label>
+            <input
+              type="text"
+              placeholder="Name to display in dropdown"
+              value={manageName}
+              onChange={(e) => setManageName(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Channel ID</label>
+            <input
+              type="text"
+              placeholder="Channel ID"
+              value={manageId}
+              onChange={(e) => setManageId(e.target.value)}
+            />
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={createChannel}
+              disabled={manageLoading || !manageName.trim() || !manageId.trim()}
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={updateChannel}
+              disabled={manageLoading || !manageSelectedId || !manageName.trim() || !manageId.trim()}
+            >
+              Update
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={deleteChannel}
+              disabled={manageLoading || !manageSelectedId}
+            >
+              Delete
+            </button>
+          </div>
+          {manageMessage && <ErrorBox message={manageMessage} />}
         </div>
 
         <div className="field">
