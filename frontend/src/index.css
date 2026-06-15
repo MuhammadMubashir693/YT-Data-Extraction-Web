@@ -171,14 +171,23 @@ button.secondary:hover {
   border-color: var(--accent-2);
 }
 
-.error-box {
-  background: rgba(255, 77, 77, 0.1);
-  border: 1px solid var(--accent);
-  color: #ff9a9a;
+.message-box {
   padding: 10px 14px;
   border-radius: 8px;
   margin-top: 14px;
   font-size: 14px;
+}
+
+.message-box.error {
+  background: rgba(255, 77, 77, 0.1);
+  border: 1px solid var(--accent);
+  color: #ff9a9a;
+}
+
+.message-box.success {
+  background: rgba(112, 255, 112, 0.12);
+  border: 1px solid #4bb34b;
+  color: #1a7a1a;
 }
 
 .result-count {

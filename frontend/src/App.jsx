@@ -20,9 +20,9 @@ async function apiGet(path, params = {}) {
   return data;
 }
 
-function ErrorBox({ message }) {
+function ErrorBox({ message, type = "error" }) {
   if (!message) return null;
-  return <div className="error-box">{message}</div>;
+  return <div className={`message-box ${type}`}>{message}</div>;
 }
 
 function Spinner() {
@@ -99,6 +99,7 @@ function ChannelSearchTab() {
   const [manageId, setManageId] = useState("");
   const [manageSelectedId, setManageSelectedId] = useState("");
   const [manageMessage, setManageMessage] = useState("");
+  const [manageMessageType, setManageMessageType] = useState("error");
   const [manageLoading, setManageLoading] = useState(false);
 
   const refreshChannels = async () => {
@@ -179,8 +180,9 @@ function ChannelSearchTab() {
     }
   };
 
-  const handleManageError = (message) => {
+  const handleManageError = (message, type = "error") => {
     setManageMessage(message);
+    setManageMessageType(type);
     setTimeout(() => setManageMessage(""), 4000);
   };
 
@@ -197,7 +199,7 @@ function ChannelSearchTab() {
       await refreshChannels();
       setManageSelectedId(data.id);
       setChannelId(data.id);
-      handleManageError("Channel added successfully.");
+      handleManageError("Channel added successfully.", "success");
     } catch (err) {
       handleManageError(err.message);
     } finally {
@@ -221,7 +223,7 @@ function ChannelSearchTab() {
       await refreshChannels();
       setManageSelectedId(data.id);
       setChannelId(data.id);
-      handleManageError("Channel updated successfully.");
+      handleManageError("Channel updated successfully.", "success");
     } catch (err) {
       handleManageError(err.message);
     } finally {
@@ -244,7 +246,7 @@ function ChannelSearchTab() {
       if (channelId === manageSelectedId) {
         setChannelId("");
       }
-      handleManageError("Channel deleted successfully.");
+      handleManageError("Channel deleted successfully.", "success");
     } catch (err) {
       handleManageError(err.message);
     } finally {
@@ -348,7 +350,7 @@ function ChannelSearchTab() {
                 Delete
               </button>
             </div>
-            {manageMessage && <ErrorBox message={manageMessage} />}
+            {manageMessage && <ErrorBox message={manageMessage} type={manageMessageType} />}
           </div>
         )}
 
