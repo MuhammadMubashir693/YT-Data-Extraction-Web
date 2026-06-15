@@ -1,41 +1,56 @@
-# YouTube Data Extraction Tool (Web Version)
+# YouTube Data Extraction Tool (Web)
 
-A React + Node/Express web app version of the original Python CLI tool.
-Uses the YouTube Data API v3.
+React + Node/Express web app that uses the YouTube Data API v3 to fetch
+video, channel, playlist and comment information and provides a small UI
+for searching and browsing results.
 
-## Structure
+**Repository structure**
 
 ```
-yt-tool/
-├── backend/      # Express API server
+YT-Data-Extraction-Web/
+├── backend/      # Express API server (Node, MongoDB-backed channel storage)
 │   ├── server.js
 │   ├── helpers.js
-│   ├── channels.txt   # unused: channel storage is now MongoDB-backed
-│   └── .env
-└── frontend/     # React (Vite) app
-    └── src/
+   └── package.json
+└── frontend/     # React + Vite app
+    ├── src/
+    ├── vite.config.js
+    └── package.json
 ```
 
-## Setup
+**Quick start**
 
-### 1. Backend
+1) Backend
 
 ```bash
 cd backend
 npm install
-cp .env.example .env
+# create or edit backend/.env with your values (see example below)
 ```
 
-Edit `.env` and set your API key:
+Required environment variables (defaults shown when applicable):
+
+- `YT_API_KEY` – YouTube Data API v3 key (no OAuth required)
+- `PORT` – backend port (default: `5000`)
+- `MONGO_USER` – MongoDB username (default: `admin`)
+- `MONGO_PASS` – MongoDB password (default: `mongo123`)
+- `MONGO_HOST` – MongoDB host (default: `localhost`)
+- `MONGO_PORT` – MongoDB port (default: `27017`)
+- `MONGO_DB` – database name (default: `yt-data-web`)
+- `MONGO_COLL` – collection name for saved channels (default: `yt-channels`)
+
+Example `backend/.env`:
 
 ```
 YT_API_KEY=your_api_key_here
 PORT=5000
+MONGO_USER=admin
+MONGO_PASS=mongo123
+MONGO_HOST=localhost
+MONGO_PORT=27017
+MONGO_DB=yt-data-web
+MONGO_COLL=yt-channels
 ```
-
-(Get an API key from the Google Cloud Console with the YouTube Data API v3 enabled.)
-
-The channel list is stored in MongoDB `test.yt-channels`. Use the Search Channel Videos manager to add, update, or delete saved channels.
 
 Start the backend:
 
@@ -43,11 +58,9 @@ Start the backend:
 npm start
 ```
 
-It runs on http://localhost:5000
+The server listens on http://localhost:5000 by default.
 
-### 2. Frontend
-
-In a separate terminal:
+2) Frontend
 
 ```bash
 cd frontend
@@ -55,24 +68,48 @@ npm install
 npm run dev
 ```
 
-It runs on http://localhost:5173 and proxies `/api/*` requests to the backend.
+The Vite dev server runs on http://localhost:5173 and proxies `/api` requests
+to the backend (see `frontend/vite.config.js`).
 
 Open http://localhost:5173 in your browser.
 
-## Features
+**API endpoints**
 
-1. **Video Details** — paste a video ID or any YouTube video URL (watch, shorts,
-   embed, live, youtu.be, music.youtube.com) to get full details.
-2. **Search Channel Videos** — pick a channel from `channels.txt`, search by
-   keyword and/or date range, optionally filter by duration (short/medium/long).
-3. **Channel Details** — paste a channel ID, URL, `/@handle`, `/c/Name`, or
-   `/user/Name` URL, or a bare handle.
-4. **Comment Details** — paste a comment ID or a watch URL containing `lc=`.
-5. **Playlist Videos** — paste a playlist ID or any URL containing `list=`.
+The backend exposes a small JSON API under `/api`:
 
-## Notes
+- `GET /api/health` — basic health check; returns `{ ok: true, apiKeySet: boolean }`.
+- `GET /api/video?q=<id|url>` — fetch single video details.
+- `GET /api/channel?q=<id|url|handle>` — fetch channel details and public playlists.
+- `GET /api/channels` — list saved channels (MongoDB-backed).
+- `POST /api/channels` — add saved channel; JSON body: `{ name, id }`.
+- `PUT /api/channels/:currentId` — update saved channel; JSON body: `{ name, id }`.
+- `DELETE /api/channels/:id` — delete saved channel.
+- `GET /api/channel-videos?channelId=...&mode=keyword|date&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long` — fetch videos for a channel with optional filters.
+- `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long` — general video search.
+- `GET /api/comment?q=<id|url-with-lc>` — fetch a single comment by ID or `lc` param.
+- `GET /api/comments?q=<videoId|url>&sort=top|latest|earliest&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — fetch comment threads and replies for a video.
+- `GET /api/playlist?q=<id|url>` — fetch playlist metadata and videos.
 
-- The YouTube Data API has a daily quota; heavy use of search/playlist endpoints
-  consumes quota quickly.
-- All responses are read-only (no write/auth scopes required), so only an API
-  key is needed (no OAuth).
+See `backend/server.js` and `backend/helpers.js` for parsing/format details.
+
+**Frontend features**
+
+- Fetch single video details by ID or URL.
+- Search videos within a saved channel or globally.
+- Manage saved channels (add, update, delete) — saved to MongoDB.
+- Fetch channel details (including public playlists).
+- Fetch single comments or comment threads with replies, with keyword/date filters and sorting.
+- Fetch playlist videos by playlist ID or URL.
+
+**Notes & caveats**
+
+- The YouTube Data API has daily quota limits; search and playlist operations can consume quota quickly.
+- The app uses only read-only API calls — an API key is sufficient (no OAuth).
+- If MongoDB is not available, channel management endpoints will fail; the backend prints a warning when it cannot connect.
+
+If you'd like, I can also:
+
+- add a `backend/.env.example` file,
+- add simple Docker Compose to run MongoDB locally,
+- or prepare a short CONTRIBUTING section with development notes.
+
