@@ -11,6 +11,7 @@ import {
   parseCommentId,
   parsePlaylistId,
   fmtDatetime,
+  fmtDatetimeAt,
   fmtCountry,
   keywordMatches,
   shapeVideo,
@@ -266,8 +267,44 @@ app.get("/api/channel", async (req, res) => {
     const st = ch.statistics || {};
     const thumb = sn.thumbnails || {};
     const thumbUrl =
-      thumb.high?.url || thumb.medium?.url || thumb.default?.url || "N/A";
-    const banner = bs.image?.bannerExternalUrl || "N/A";
+      thumb.high?.url ||
+      thumb.maxres?.url ||
+      thumb.standard?.url ||
+      thumb.medium?.url ||
+      thumb.default?.url ||
+      null;
+    const banner =
+      bs.image?.bannerExternalUrl ||
+      bs.image?.bannerImageUrl ||
+      bs.image?.bannerMobileImageUrl ||
+      bs.image?.bannerTabletImageUrl ||
+      bs.image?.bannerTabletLowImageUrl ||
+      bs.image?.bannerTvImageUrl ||
+      bs.image?.bannerTvLowImageUrl ||
+      bs.image?.bannerMobileLowImageUrl ||
+      null;
+
+    const playlists = [];
+    let playlistPageToken;
+    do {
+      const playlistResp = await ytFetch("playlists", {
+        part: "snippet,contentDetails",
+        channelId: ch.id,
+        maxResults: 50,
+        pageToken: playlistPageToken,
+      });
+      for (const item of playlistResp.items || []) {
+        playlists.push({
+          playlistId: item.id,
+          playlistUrl: `https://www.youtube.com/playlist?list=${item.id}`,
+          title: item.snippet?.title || "N/A",
+          channelId: item.snippet?.channelId || ch.id,
+          publishedAt: fmtDatetime(item.snippet?.publishedAt),
+          videoCount: item.contentDetails?.itemCount ?? "N/A",
+        });
+      }
+      playlistPageToken = playlistResp.nextPageToken;
+    } while (playlistPageToken);
 
     res.json({
       channelId: ch.id,
@@ -281,6 +318,7 @@ app.get("/api/channel", async (req, res) => {
       videoCount: st.videoCount ?? "N/A",
       subscriberCount: st.subscriberCount ?? "N/A",
       viewCount: st.viewCount ?? "N/A",
+      playlists,
     });
   } catch (err) {
     handleError(res, err);
@@ -310,11 +348,118 @@ app.get("/api/comment", async (req, res) => {
       commentId: c.id,
       authorName: sn.authorDisplayName,
       authorChannelId: sn.authorChannelId?.value || "N/A",
+      authorProfileImageUrl: sn.authorProfileImageUrl || null,
       textDisplay: sn.textDisplay || "",
       textOriginal: sn.textOriginal || "",
       likeCount: sn.likeCount ?? 0,
       publishedAt: fmtDatetime(sn.publishedAt),
       updatedAt: fmtDatetime(sn.updatedAt),
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Part 5 – Comment threads with replies ──────────────────────────────────
+
+app.get("/api/comments", async (req, res) => {
+  try {
+    const raw = req.query.q || "";
+    const videoId = parseVideoId(raw);
+    if (!videoId) {
+      return res.status(400).json({ error: "Could not parse a valid video ID from the input." });
+    }
+
+    const sort = String(req.query.sort || "top").toLowerCase();
+    const apiOrder = sort === "top" ? "relevance" : "time";
+    const keyword = String(req.query.keyword || "").trim().toLowerCase();
+    const startDate = req.query.startDate ? new Date(`${req.query.startDate}T00:00:00Z`) : null;
+    const endDate = req.query.endDate ? new Date(`${req.query.endDate}T23:59:59Z`) : null;
+
+    let allThreads = [];
+    let nextPageToken;
+
+    do {
+      const params = {
+        part: "snippet,replies",
+        videoId,
+        maxResults: 100,
+        textFormat: "plainText",
+        order: apiOrder,
+      };
+      if (nextPageToken) params.pageToken = nextPageToken;
+      const resp = await ytFetch("commentThreads", params);
+      allThreads.push(...(resp.items || []));
+      nextPageToken = resp.nextPageToken;
+    } while (nextPageToken);
+
+    const threads = allThreads
+      .map((thread) => {
+        const top = thread.snippet.topLevelComment;
+        const sn = top.snippet;
+        const replies = (thread.replies?.comments || []).map((reply) => {
+          const rs = reply.snippet;
+          return {
+            commentId: reply.id,
+            authorName: rs.authorDisplayName,
+            authorChannelId: rs.authorChannelId?.value || "N/A",
+            authorProfileImageUrl: rs.authorProfileImageUrl || null,
+            likeCount: rs.likeCount ?? 0,
+            publishedAt: fmtDatetimeAt(rs.publishedAt),
+            updatedAt: fmtDatetimeAt(rs.updatedAt),
+            textDisplay: rs.textDisplay || "",
+            textOriginal: rs.textOriginal || "",
+            publishedAtRaw: rs.publishedAt,
+          };
+        });
+        return {
+          commentId: top.id,
+          authorName: sn.authorDisplayName,
+          authorChannelId: sn.authorChannelId?.value || "N/A",
+          authorProfileImageUrl: sn.authorProfileImageUrl || null,
+          likeCount: sn.likeCount ?? 0,
+          publishedAt: fmtDatetimeAt(sn.publishedAt),
+          updatedAt: fmtDatetimeAt(sn.updatedAt),
+          textDisplay: sn.textDisplay || "",
+          textOriginal: sn.textOriginal || "",
+          replyCount: thread.snippet.totalReplyCount ?? 0,
+          replies,
+          publishedAtRaw: sn.publishedAt,
+        };
+      })
+      .filter((thread) => {
+        if (keyword) {
+          const threadText = `${thread.textDisplay} ${thread.textOriginal}`.toLowerCase();
+          const replyText = thread.replies
+            .map((reply) => `${reply.textDisplay} ${reply.textOriginal}`.toLowerCase())
+            .join(" ");
+          if (!threadText.includes(keyword) && !replyText.includes(keyword)) {
+            return false;
+          }
+        }
+        if (startDate && new Date(thread.publishedAtRaw) < startDate) {
+          return false;
+        }
+        if (endDate && new Date(thread.publishedAtRaw) > endDate) {
+          return false;
+        }
+        return true;
+      });
+
+    if (sort === "earliest") {
+      threads.sort((a, b) => new Date(a.publishedAtRaw) - new Date(b.publishedAtRaw));
+    } else if (sort === "latest") {
+      threads.sort((a, b) => new Date(b.publishedAtRaw) - new Date(a.publishedAtRaw));
+    }
+
+    const commentCount = threads.reduce((total, thread) => total + 1 + thread.replies.length, 0);
+
+    res.json({
+      videoId,
+      commentCount,
+      threadCount: threads.length,
+      sort: sort === "latest" ? "latest" : sort === "earliest" ? "earliest" : "top",
+      threads,
     });
   } catch (err) {
     handleError(res, err);
@@ -331,6 +476,23 @@ app.get("/api/playlist", async (req, res) => {
       return res.status(400).json({ error: "Could not parse a valid playlist ID from the input." });
     }
 
+    // Fetch playlist metadata
+    const playlistMetadata = await ytFetch("playlists", {
+      part: "snippet",
+      id: playlistId,
+    });
+
+    let playlistInfo = {};
+    if (playlistMetadata.items?.length) {
+      const playlist = playlistMetadata.items[0];
+      playlistInfo = {
+        playlistId: playlist.id,
+        title: playlist.snippet?.title || "N/A",
+        channelId: playlist.snippet?.channelId || "N/A",
+        publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
+      };
+    }
+
     let videoIds = [];
     let nextPage;
     do {
@@ -339,6 +501,70 @@ app.get("/api/playlist", async (req, res) => {
       const resp = await ytFetch("playlistItems", params);
       for (const item of resp.items || []) {
         const vidId = item.snippet?.resourceId?.videoId;
+        if (vidId) videoIds.push(vidId);
+      }
+      nextPage = resp.nextPageToken;
+    } while (nextPage);
+
+    if (!videoIds.length) {
+      return res.json({ playlistInfo, videos: [], count: 0 });
+    }
+
+    let fullItems = [];
+    for (let i = 0; i < videoIds.length; i += 50) {
+      const batch = videoIds.slice(i, i + 50);
+      const vresp = await ytFetch("videos", {
+        part: "snippet,contentDetails,statistics",
+        id: batch.join(","),
+      });
+      fullItems.push(...(vresp.items || []));
+    }
+
+    fullItems.sort((a, b) =>
+      a.snippet.publishedAt.localeCompare(b.snippet.publishedAt)
+    );
+
+    const videos = fullItems.map((v) => shapeVideo(v));
+    res.json({ playlistInfo, videos, count: videos.length });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Part 6 – Search videos (general) ────────────────────────────────────────
+
+app.get("/api/search-videos", async (req, res) => {
+  try {
+    const {
+      keyword,
+      startDate,
+      endDate,
+      durationFilter, // 'short' | 'medium' | 'long'
+    } = req.query;
+
+    if (!keyword) {
+      return res.status(400).json({ error: "keyword is required" });
+    }
+
+    const params = {
+      part: "snippet",
+      q: keyword,
+      maxResults: 50,
+      order: "date",
+      type: "video",
+    };
+    if (durationFilter) params.videoDuration = durationFilter;
+    if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
+    if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
+
+    let videoIds = [];
+    let nextPage;
+    do {
+      const p = { ...params };
+      if (nextPage) p.pageToken = nextPage;
+      const resp = await ytFetch("search", p);
+      for (const item of resp.items || []) {
+        const vidId = item.id?.videoId;
         if (vidId) videoIds.push(vidId);
       }
       nextPage = resp.nextPageToken;
@@ -356,6 +582,10 @@ app.get("/api/playlist", async (req, res) => {
         id: batch.join(","),
       });
       fullItems.push(...(vresp.items || []));
+    }
+
+    if (keyword) {
+      fullItems = fullItems.filter((v) => keywordMatches(v.snippet.title, keyword));
     }
 
     fullItems.sort((a, b) =>

@@ -3,10 +3,11 @@ import VideoCard from "./VideoCard.jsx";
 
 const TABS = [
   { id: "video", label: "Video Details" },
-  { id: "channelSearch", label: "Search Channel Videos" },
+  { id: "channelSearch", label: "Search Videos" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
-  { id: "playlist", label: "Playlist Videos" },
+  { id: "comments", label: "Comments + Replies" },
+  { id: "playlist", label: "Playlist Details" },
 ];
 
 async function apiGet(path, params = {}) {
@@ -78,9 +79,10 @@ function VideoTab() {
   );
 }
 
-// ── Tab: Search Channel Videos ───────────────────────────────────────────
+// ── Tab: Search Videos ──────────────────────────────────────────────
 
 function ChannelSearchTab() {
+  const [searchType, setSearchType] = useState("channel"); // 'channel' | 'general'
   const [channels, setChannels] = useState([]);
   const [channelId, setChannelId] = useState("");
   const [mode, setMode] = useState("keyword");
@@ -132,21 +134,35 @@ function ChannelSearchTab() {
     setVideos(null);
     setLoading(true);
     try {
-      const params = { channelId, mode };
-      if (mode === "keyword") {
-        params.keyword = keyword;
-        if (useDateRange) {
+      if (searchType === "channel") {
+        const params = { channelId, mode };
+        if (mode === "keyword") {
+          params.keyword = keyword;
+          if (useDateRange) {
+            params.startDate = startDate;
+            params.endDate = endDate;
+          }
+        } else {
           params.startDate = startDate;
           params.endDate = endDate;
         }
-      } else {
-        params.startDate = startDate;
-        params.endDate = endDate;
-      }
-      if (useDuration) params.durationFilter = durationFilter;
+        if (useDuration) params.durationFilter = durationFilter;
 
-      const data = await apiGet("channel-videos", params);
-      setVideos(data.videos);
+        const data = await apiGet("channel-videos", params);
+        setVideos(data.videos);
+      } else {
+        // General search
+        if (!keyword.trim()) {
+          throw new Error("Keyword is required for general video search");
+        }
+        const params = { keyword };
+        if (startDate) params.startDate = startDate;
+        if (endDate) params.endDate = endDate;
+        if (useDuration) params.durationFilter = durationFilter;
+
+        const data = await apiGet("search-videos", params);
+        setVideos(data.videos);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -236,101 +252,117 @@ function ChannelSearchTab() {
     }
   };
 
+  const isChannelSearch = searchType === "channel";
+
   return (
     <div className="panel">
       <form onSubmit={submit}>
         <div className="field">
-          <label>Channel</label>
-          {channels.length ? (
-            <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
-              {channels.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.id})
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              placeholder="Channel ID (enter manually or add in the manager below)"
-              value={channelId}
-              onChange={(e) => setChannelId(e.target.value)}
-            />
-          )}
-        </div>
-
-        <div className="panel" style={{ marginBottom: 20, background: "var(--panel-2)" }}>
-          <h3>Manage saved channels</h3>
-          <div className="field">
-            <label>Saved channels</label>
-            <select
-              value={manageSelectedId}
-              onChange={(e) => selectManageChannel(e.target.value)}
-            >
-              <option value="">-- Select saved channel --</option>
-              {channels.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.id})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Channel name</label>
-            <input
-              type="text"
-              placeholder="Name to display in dropdown"
-              value={manageName}
-              onChange={(e) => setManageName(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label>Channel ID</label>
-            <input
-              type="text"
-              placeholder="Channel ID"
-              value={manageId}
-              onChange={(e) => setManageId(e.target.value)}
-            />
-          </div>
-          <div className="row" style={{ gap: 8 }}>
-            <button
-              type="button"
-              className="secondary"
-              onClick={createChannel}
-              disabled={manageLoading || !manageName.trim() || !manageId.trim()}
-            >
-              Add
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={updateChannel}
-              disabled={manageLoading || !manageSelectedId || !manageName.trim() || !manageId.trim()}
-            >
-              Update
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={deleteChannel}
-              disabled={manageLoading || !manageSelectedId}
-            >
-              Delete
-            </button>
-          </div>
-          {manageMessage && <ErrorBox message={manageMessage} />}
-        </div>
-
-        <div className="field">
-          <label>Search mode</label>
-          <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="keyword">Keyword</option>
-            <option value="date">Date range</option>
+          <label>Search Type</label>
+          <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
+            <option value="channel">Search within Channel</option>
+            <option value="general">Search Videos Generally</option>
           </select>
         </div>
 
-        {mode === "keyword" && (
+        {isChannelSearch && (
+          <div className="field">
+            <label>Channel</label>
+            {channels.length ? (
+              <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.id})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder="Channel ID (enter manually or add in the manager below)"
+                value={channelId}
+                onChange={(e) => setChannelId(e.target.value)}
+              />
+            )}
+          </div>
+        )}
+
+        {isChannelSearch && (
+          <div className="panel" style={{ marginBottom: 20, background: "var(--panel-2)" }}>
+            <h3>Manage saved channels</h3>
+            <div className="field">
+              <label>Saved channels</label>
+              <select
+                value={manageSelectedId}
+                onChange={(e) => selectManageChannel(e.target.value)}
+              >
+                <option value="">-- Select saved channel --</option>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Channel name</label>
+              <input
+                type="text"
+                placeholder="Name to display in dropdown"
+                value={manageName}
+                onChange={(e) => setManageName(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Channel ID</label>
+              <input
+                type="text"
+                placeholder="Channel ID"
+                value={manageId}
+                onChange={(e) => setManageId(e.target.value)}
+              />
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={createChannel}
+                disabled={manageLoading || !manageName.trim() || !manageId.trim()}
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={updateChannel}
+                disabled={manageLoading || !manageSelectedId || !manageName.trim() || !manageId.trim()}
+              >
+                Update
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={deleteChannel}
+                disabled={manageLoading || !manageSelectedId}
+              >
+                Delete
+              </button>
+            </div>
+            {manageMessage && <ErrorBox message={manageMessage} />}
+          </div>
+        )}
+
+        {isChannelSearch && (
+          <div className="field">
+            <label>Search mode</label>
+            <select value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="keyword">Keyword</option>
+              <option value="date">Date range</option>
+            </select>
+          </div>
+        )}
+
+        {isChannelSearch && mode === "keyword" && (
           <div className="field">
             <label>Keyword</label>
             <input
@@ -342,7 +374,19 @@ function ChannelSearchTab() {
           </div>
         )}
 
-        {mode === "keyword" && (
+        {!isChannelSearch && (
+          <div className="field">
+            <label>Keyword</label>
+            <input
+              type="text"
+              placeholder="e.g. tutorial"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
+        )}
+
+        {isChannelSearch && mode === "keyword" && (
           <label className="checkbox-row">
             <input
               type="checkbox"
@@ -353,7 +397,7 @@ function ChannelSearchTab() {
           </label>
         )}
 
-        {(mode === "date" || (mode === "keyword" && useDateRange)) && (
+        {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
           <div className="row">
             <div className="field">
               <label>Start date</label>
@@ -386,7 +430,7 @@ function ChannelSearchTab() {
           </div>
         )}
 
-        <button className="primary" disabled={loading || !channelId}>
+        <button className="primary" disabled={loading || (isChannelSearch && !channelId) || (!isChannelSearch && !keyword.trim())}>
           {loading && <Spinner />}
           Search
         </button>
@@ -452,10 +496,12 @@ function ChannelTab() {
           {channel.banner !== "N/A" && (
             <img src={channel.banner} alt="banner" className="banner-img" />
           )}
+          {channel.thumbnail !== "N/A" && (
+            <div className="channel-avatar-row">
+              <img src={channel.thumbnail} alt="avatar" className="channel-avatar-large" />
+            </div>
+          )}
           <div className="channel-card">
-            {channel.thumbnail !== "N/A" && (
-              <img src={channel.thumbnail} alt="avatar" className="avatar" />
-            )}
             <div>
               <h2 style={{ margin: "0 0 8px" }}>{channel.title}</h2>
               <div className="meta-grid">
@@ -470,6 +516,23 @@ function ChannelTab() {
               {channel.description && (
                 <div className="description" style={{ marginTop: 10 }}>
                   {channel.description}
+                </div>
+              )}
+              {channel.playlists?.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Public playlists</h3>
+                  <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
+                    {channel.playlists.map((playlist) => (
+                      <div key={playlist.playlistId} style={{ marginBottom: 10 }}>
+                        <div><b>ID:</b> {playlist.playlistId}</div>
+                        <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
+                        <div><b>Title:</b> {playlist.title}</div>
+                        <div><b>Channel ID:</b> {playlist.channelId}</div>
+                        <div><b>Published at:</b> {playlist.publishedAt}</div>
+                        <div><b>Video count:</b> {playlist.videoCount}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -531,8 +594,17 @@ function CommentTab() {
             <span><b>Published:</b> {comment.publishedAt}</span>
             <span><b>Updated:</b> {comment.updatedAt}</span>
           </div>
-          <div className="description" style={{ marginTop: 10, maxHeight: "none" }}>
-            {comment.textDisplay}
+          <div className="comment-author-row" style={{ marginTop: 12 }}>
+            {comment.authorProfileImageUrl && (
+              <img
+                src={comment.authorProfileImageUrl}
+                alt={comment.authorName}
+                className="comment-avatar"
+              />
+            )}
+            <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
+              {comment.textDisplay}
+            </div>
           </div>
         </div>
       )}
@@ -542,20 +614,208 @@ function CommentTab() {
 
 // ── Tab: Playlist Videos ─────────────────────────────────────────────────
 
+function CommentsTab() {
+  const [input, setInput] = useState("");
+  const [commentsData, setCommentsData] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sort, setSort] = useState("top");
+  const [mode, setMode] = useState("keyword");
+  const [keyword, setKeyword] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [expandedThreads, setExpandedThreads] = useState({});
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setCommentsData(null);
+    setLoading(true);
+    try {
+      const params = { q: input, sort };
+      if (mode === "keyword" && keyword.trim()) {
+        params.keyword = keyword.trim();
+      }
+      if (mode === "date") {
+        if (startDate) params.startDate = startDate;
+        if (endDate) params.endDate = endDate;
+      }
+      const data = await apiGet("comments", params);
+      setCommentsData(data);
+      setExpandedThreads({});
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleReplies = (threadId) => {
+    setExpandedThreads((prev) => ({
+      ...prev,
+      [threadId]: !prev[threadId],
+    }));
+  };
+
+  return (
+    <div className="panel">
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>Video ID or URL</label>
+          <input
+            type="text"
+            placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Search mode</label>
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="keyword">Keyword</option>
+            <option value="date">Date range</option>
+          </select>
+        </div>
+        {mode === "keyword" && (
+          <div className="field">
+            <label>Keyword</label>
+            <input
+              type="text"
+              placeholder="Search comment text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
+        )}
+        {mode === "date" && (
+          <div className="row">
+            <div className="field">
+              <label>Start date</label>
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>End date</label>
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+          </div>
+        )}
+        <div className="field">
+          <label>Sort comments</label>
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="top">Top comments</option>
+            <option value="latest">Latest first</option>
+            <option value="earliest">Earliest first</option>
+          </select>
+        </div>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Fetch Comments
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={loading}
+            onClick={() => {
+              setInput("");
+              setCommentsData(null);
+              setError("");
+              setSort("top");
+              setMode("keyword");
+              setKeyword("");
+              setStartDate("");
+              setEndDate("");
+              setExpandedThreads({});
+            }}
+          >
+            Reset Filters
+          </button>
+        </div>
+      </form>
+      <ErrorBox message={error} />
+      {commentsData && (
+        <div style={{ marginTop: 16 }}>
+          <p className="result-count">Comment count: {commentsData.commentCount}</p>
+          <p className="result-count">Thread count: {commentsData.threadCount}</p>
+          {commentsData.threads.map((thread) => (
+            <div key={thread.commentId} className="comment-thread">
+              <div className="comment-header">
+                {thread.authorProfileImageUrl && (
+                  <img src={thread.authorProfileImageUrl} alt={thread.authorName} className="comment-avatar" />
+                )}
+                <div>
+                  <div className="comment-meta">
+                    <span><b>{thread.authorName}</b></span>
+                    <span>({thread.authorChannelId})</span>
+                  </div>
+                  <div className="comment-meta-small">
+                    <span>ID: {thread.commentId}</span>
+                    <span>Likes: {thread.likeCount}</span>
+                    <span>Published: {thread.publishedAt}</span>
+                    <span>Updated: {thread.updatedAt}</span>
+                    <span>Replies: {thread.replyCount}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="description" style={{ marginTop: 10 }}>{thread.textDisplay}</div>
+              {thread.replyCount > 0 && (
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ marginTop: 10 }}
+                  onClick={() => toggleReplies(thread.commentId)}
+                >
+                  {expandedThreads[thread.commentId] ? "Hide replies" : `Show replies (${thread.replyCount})`}
+                </button>
+              )}
+              {expandedThreads[thread.commentId] && thread.replies.length > 0 && (
+                <div className="replies-list">
+                  {thread.replies.map((reply) => (
+                    <div key={reply.commentId} className="comment-reply">
+                      <div className="comment-header">
+                        {reply.authorProfileImageUrl && (
+                          <img src={reply.authorProfileImageUrl} alt={reply.authorName} className="comment-avatar" />
+                        )}
+                        <div>
+                          <div className="comment-meta">
+                            <span><b>{reply.authorName}</b></span>
+                            <span>({reply.authorChannelId})</span>
+                          </div>
+                          <div className="comment-meta-small">
+                            <span>ID: {reply.commentId}</span>
+                            <span>Likes: {reply.likeCount}</span>
+                            <span>Published: {reply.publishedAt}</span>
+                            <span>Updated: {reply.updatedAt}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="description" style={{ marginTop: 10 }}>{reply.textDisplay}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlaylistTab() {
   const [input, setInput] = useState("");
-  const [videos, setVideos] = useState(null);
+  const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    setVideos(null);
+    setData(null);
     setLoading(true);
     try {
-      const data = await apiGet("playlist", { q: input });
-      setVideos(data.videos);
+      const result = await apiGet("playlist", { q: input });
+      setData(result);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -581,10 +841,21 @@ function PlaylistTab() {
         </button>
       </form>
       <ErrorBox message={error} />
-      {videos && (
+      {data && (
         <>
-          <p className="result-count">Result count: {videos.length}</p>
-          {videos.map((v) => (
+          {data.playlistInfo && Object.keys(data.playlistInfo).length > 0 && (
+            <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
+              <h3>Playlist Details</h3>
+              <div className="meta-grid">
+                <span><b>Playlist ID:</b> {data.playlistInfo.playlistId}</span>
+                <span><b>Title:</b> {data.playlistInfo.title}</span>
+                <span><b>Channel ID:</b> {data.playlistInfo.channelId}</span>
+                <span><b>Published At:</b> {data.playlistInfo.publishedAt}</span>
+              </div>
+            </div>
+          )}
+          <p className="result-count" style={{ marginTop: 16 }}>Video count: {data.videos.length}</p>
+          {data.videos.map((v) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
         </>
@@ -636,6 +907,7 @@ export default function App() {
       {tab === "channelSearch" && <ChannelSearchTab />}
       {tab === "channel" && <ChannelTab />}
       {tab === "comment" && <CommentTab />}
+      {tab === "comments" && <CommentsTab />}
       {tab === "playlist" && <PlaylistTab />}
     </div>
   );

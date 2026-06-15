@@ -121,6 +121,25 @@ export function fmtDatetime(isoStr) {
   }) + " UTC";
 }
 
+export function fmtDatetimeAt(isoStr) {
+  const dt = new Date(isoStr);
+  const date = dt.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const time = dt.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  });
+  return `${date} at ${time} UTC`;
+}
+
 export function fmtDuration(isoDur) {
   let total;
   try {
@@ -174,7 +193,13 @@ export function shapeVideo(item, idOverride) {
     likes: stat.likeCount ?? "N/A",
     views: stat.viewCount ?? "N/A",
     comments: stat.commentCount ?? "N/A",
-    thumbnail: `https://img.youtube.com/vi/${vid}/sddefault.jpg`,
+    thumbnail:
+      sid.thumbnails?.high?.url ||
+      sid.thumbnails?.maxres?.url ||
+      sid.thumbnails?.standard?.url ||
+      sid.thumbnails?.medium?.url ||
+      sid.thumbnails?.default?.url ||
+      `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
     description: (sid.description || "").trim(),
     publishedAtRaw: sid.publishedAt,
   };
