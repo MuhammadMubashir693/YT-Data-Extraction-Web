@@ -88,9 +88,10 @@ The backend exposes a small JSON API under `/api`:
 - `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long` — general video search.
 - `GET /api/comment?q=<id|url-with-lc>` — fetch a single comment by ID or `lc` param.
 - `GET /api/comments?q=<videoId|url>&sort=top|latest|earliest&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — fetch comment threads and replies for a video.
+- `GET /api/comment-replies?parentId=...&pageToken=...` — fetch replies for a top-level comment.
 - `GET /api/playlist?q=<id|url>` — fetch playlist metadata and videos.
 
-See `backend/server.js` and `backend/helpers.js` for parsing/format details.
+For a full API reference, see `backend/API_DOCUMENTATION.md`.
 
 **Frontend features**
 
