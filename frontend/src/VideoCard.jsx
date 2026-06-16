@@ -13,6 +13,7 @@ export default function VideoCard({ v }) {
         </p>
         <div className="meta-grid">
           <span><b>Channel:</b> {v.channelTitle}</span>
+          <span><b>Channel ID:</b> {v.channelId}</span>
           <span><b>Uploaded:</b> {v.uploadDate}</span>
           <span><b>Duration:</b> {v.duration}</span>
           <span><b>Views:</b> {v.views}</span>
