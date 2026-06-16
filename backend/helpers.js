@@ -167,11 +167,19 @@ export function fmtCountry(code) {
 
 // ── Keyword matching ────────────────────────────────────────────────────
 
-export function keywordMatches(title, keyword) {
-  const kw = keyword.toLowerCase().replace(/s+$/, "");
-  const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
-  return pattern.test(title.toLowerCase());
+export function keywordMatches(fields, keyword) {
+  if (!keyword) return false;
+  const hay = Array.isArray(fields) ? fields.join(" ") : String(fields || "");
+  const hayLower = hay.toLowerCase();
+
+  const tokens = String(keyword || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return false;
+
+  return tokens.every((tok) => {
+    const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
+    return pattern.test(hayLower);
+  });
 }
 
 // ── Video shaping ───────────────────────────────────────────────────────

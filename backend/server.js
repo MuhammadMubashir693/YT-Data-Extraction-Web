@@ -301,7 +301,9 @@ app.get("/api/channel-videos", async (req, res) => {
     }
 
     if (mode === "keyword" && keyword) {
-      fullItems = fullItems.filter((v) => keywordMatches(v.snippet.title, keyword));
+      fullItems = fullItems.filter((v) =>
+        keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
+      );
     }
 
     const sort = String(req.query.sort || "relevance").toLowerCase();
@@ -698,7 +700,9 @@ app.get("/api/search-videos", async (req, res) => {
     }
 
     if (keyword) {
-      fullItems = fullItems.filter((v) => keywordMatches(v.snippet.title, keyword));
+      fullItems = fullItems.filter((v) =>
+        keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
+      );
     }
 
     const sort = String(req.query.sort || "relevance").toLowerCase();

@@ -275,6 +275,16 @@ function ChannelSearchTab() {
           </label>
         )}
 
+        {isChannelSearch && mode === "date" && (
+          <div className="field">
+            <label>Sort by</label>
+            <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+              <option value="date-desc">Date (newest first)</option>
+              <option value="date-asc">Date (oldest first)</option>
+            </select>
+          </div>
+        )}
+
         {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
           <div className="row">
             <div className="field">
