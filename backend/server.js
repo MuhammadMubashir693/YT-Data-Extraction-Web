@@ -534,6 +534,51 @@ app.get("/api/comments", async (req, res) => {
   }
 });
 
+app.get("/api/comment-replies", async (req, res) => {
+  try {
+    const parentId = String(req.query.parentId || "").trim();
+    if (!parentId) {
+      return res.status(400).json({ error: "Missing parentId query parameter." });
+    }
+    const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
+
+    const params = {
+      part: "snippet",
+      parentId,
+      maxResults: 20,
+      textFormat: "plainText",
+    };
+    if (pageToken) params.pageToken = pageToken;
+
+    const resp = await ytFetch("comments", params);
+    const replies = (resp.items || []).map((reply) => {
+      const rs = reply.snippet;
+      return {
+        commentId: reply.id,
+        authorName: rs.authorDisplayName,
+        authorChannelId: rs.authorChannelId?.value || "N/A",
+        authorProfileImageUrl: rs.authorProfileImageUrl || null,
+        likeCount: rs.likeCount ?? 0,
+        publishedAt: fmtDatetimeAt(rs.publishedAt),
+        updatedAt: fmtDatetimeAt(rs.updatedAt),
+        textDisplay: rs.textDisplay || "",
+        textOriginal: rs.textOriginal || "",
+        publishedAtRaw: rs.publishedAt,
+      };
+    });
+
+    res.json({
+      parentId,
+      replies,
+      hasMore: Boolean(resp.nextPageToken),
+      nextPageToken: resp.nextPageToken || null,
+      totalResults: resp.pageInfo?.totalResults ?? null,
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── Part 5 – Playlist videos ────────────────────────────────────────────────
 
 app.get("/api/playlist", async (req, res) => {

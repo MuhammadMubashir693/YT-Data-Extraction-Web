@@ -373,6 +373,9 @@ button.secondary:hover {
 
 .replies-list {
   margin-top: 14px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .banner-img {

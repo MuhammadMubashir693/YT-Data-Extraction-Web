@@ -686,6 +686,7 @@ function CommentsTab() {
   const [nextPageToken, setNextPageToken] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [totalThreads, setTotalThreads] = useState(null);
+  const [replyPages, setReplyPages] = useState({});
   const { isNearBottom } = useInfiniteScroll({ enabled: hasMore });
 
   const buildBaseParams = () => {
@@ -720,6 +721,20 @@ function CommentsTab() {
       setHasMore(Boolean(data.hasMore));
       setTotalThreads(data.totalThreads || null);
       setExpandedThreads((prev) => (pageToken ? prev : {}));
+      setReplyPages((prev) => {
+        const next = { ...prev };
+        (data.threads || []).forEach((thread) => {
+          if (!next[thread.commentId]) {
+            next[thread.commentId] = {
+              replies: thread.replies || [],
+              hasMore: thread.replyCount > (thread.replies?.length || 0),
+              nextPageToken: null,
+              loading: false,
+            };
+          }
+        });
+        return next;
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -736,6 +751,7 @@ function CommentsTab() {
     setHasMore(false);
     setTotalThreads(null);
     setExpandedThreads({});
+    setReplyPages({});
     await fetchCommentsPage();
   };
 
@@ -826,6 +842,7 @@ function CommentsTab() {
               setStartDate("");
               setEndDate("");
               setExpandedThreads({});
+              setReplyPages({});
             }}
           >
             Reset Filters
@@ -875,39 +892,108 @@ function CommentsTab() {
                   {expandedThreads[thread.commentId] ? "Hide replies" : `Show replies (${thread.replyCount})`}
                 </button>
               )}
-              {expandedThreads[thread.commentId] && thread.replies.length > 0 && (
-                <div className="replies-list">
-                  {thread.replies.map((reply) => (
-                    <div key={reply.commentId} className="comment-reply">
-                      <div className="comment-header">
-                        {reply.authorProfileImageUrl && (
-                          <ImageWithFallback
-                            src={reply.authorProfileImageUrl}
-                            alt={reply.authorName}
-                            className="comment-avatar"
-                          />
-                        )}
-                        <div>
-                          <div className="comment-meta">
-                            <span><b>{reply.authorName}</b></span>
-                            <span>({reply.authorChannelId})</span>
-                          </div>
-                          <div className="comment-meta-small">
-                            <span>ID: {reply.commentId}</span>
-                            <span>Likes: {reply.likeCount}</span>
-                            <span>Published: {reply.publishedAt}</span>
-                            <span>Updated: {reply.updatedAt}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="description" style={{ marginTop: 10 }}>{reply.textDisplay}</div>
-                    </div>
-                  ))}
-                </div>
+              {expandedThreads[thread.commentId] && (
+                <RepliesList
+                  thread={thread}
+                  replyState={replyPages[thread.commentId] || {
+                    replies: thread.replies || [],
+                    hasMore: thread.replyCount > (thread.replies?.length || 0),
+                    nextPageToken: null,
+                    loading: false,
+                  }}
+                  loadMoreReplies={async () => {
+                    const pageState = replyPages[thread.commentId] || {
+                      replies: thread.replies || [],
+                      hasMore: thread.replyCount > (thread.replies?.length || 0),
+                      nextPageToken: null,
+                      loading: false,
+                    };
+                    if (!pageState.hasMore || pageState.loading) return;
+                    setReplyPages((prev) => ({
+                      ...prev,
+                      [thread.commentId]: {
+                        ...pageState,
+                        loading: true,
+                      },
+                    }));
+                    try {
+                      const params = { parentId: thread.commentId };
+                      if (pageState.nextPageToken) params.pageToken = pageState.nextPageToken;
+                      const data = await apiGet("comment-replies", params);
+                      setReplyPages((prev) => {
+                        const current = prev[thread.commentId] || pageState;
+                        const existingIds = new Set(current.replies.map((reply) => reply.commentId));
+                        const newReplies = data.replies.filter((reply) => !existingIds.has(reply.commentId));
+                        return {
+                          ...prev,
+                          [thread.commentId]: {
+                            replies: [...current.replies, ...newReplies],
+                            hasMore: data.hasMore,
+                            nextPageToken: data.nextPageToken,
+                            loading: false,
+                          },
+                        };
+                      });
+                    } catch (err) {
+                      setReplyPages((prev) => ({
+                        ...prev,
+                        [thread.commentId]: {
+                          ...pageState,
+                          loading: false,
+                        },
+                      }));
+                    }
+                  }}
+                />
               )}
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function RepliesList({ thread, replyState, loadMoreReplies }) {
+  const { containerRef, isNearBottom } = useInfiniteScroll({ enabled: replyState.hasMore && !replyState.loading, threshold: 0.9 });
+
+  useEffect(() => {
+    if (isNearBottom && replyState.hasMore && !replyState.loading) {
+      loadMoreReplies();
+    }
+  }, [isNearBottom, replyState.hasMore, replyState.loading, loadMoreReplies]);
+
+  return (
+    <div className="replies-list" ref={containerRef}>
+      {replyState.replies.map((reply) => (
+        <div key={reply.commentId} className="comment-reply">
+          <div className="comment-header">
+            {reply.authorProfileImageUrl && (
+              <ImageWithFallback
+                src={reply.authorProfileImageUrl}
+                alt={reply.authorName}
+                className="comment-avatar"
+              />
+            )}
+            <div>
+              <div className="comment-meta">
+                <span><b>{reply.authorName}</b></span>
+                <span>({reply.authorChannelId})</span>
+              </div>
+              <div className="comment-meta-small">
+                <span>ID: {reply.commentId}</span>
+                <span>Likes: {reply.likeCount}</span>
+                <span>Published: {reply.publishedAt}</span>
+                <span>Updated: {reply.updatedAt}</span>
+              </div>
+            </div>
+          </div>
+          <div className="description" style={{ marginTop: 10 }}>{reply.textDisplay}</div>
+        </div>
+      ))}
+      {replyState.loading && <div className="message-box secondary" style={{ marginTop: 10 }}>Loading replies...</div>}
+      {!replyState.loading && replyState.hasMore && replyState.replies.length > 0 && (
+        <div className="message-box secondary" style={{ marginTop: 10 }}>Scroll for more replies</div>
       )}
     </div>
   );
