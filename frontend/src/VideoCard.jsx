@@ -1,9 +1,10 @@
 import React from "react";
+import ImageWithFallback from "./ImageWithFallback.jsx";
 
 export default function VideoCard({ v }) {
   return (
     <div className="video-card">
-      <img src={v.thumbnail} alt={v.title} loading="lazy" />
+      <ImageWithFallback src={v.thumbnail} alt={v.title} loading="lazy" />
       <div className="body">
         <p className="title">
           <a href={v.videoUrl} target="_blank" rel="noreferrer">

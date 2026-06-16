@@ -57,16 +57,52 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get("/api/proxy-image", async (req, res) => {
+  const url = req.query.url;
+  if (!url) {
+    return res.status(400).json({ error: "Missing url query parameter." });
+  }
+  try {
+    const response = await axios.get(url, {
+      responseType: "stream",
+      headers: {
+        Accept: "image/*,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (compatible; ImageProxy/1.0)",
+      },
+      timeout: 10000,
+    });
+    res.setHeader("content-type", response.headers["content-type"] || "application/octet-stream");
+    response.data.pipe(res);
+  } catch (err) {
+    const status = err.response?.status || 502;
+    res.status(status).json({ error: err.message || "Failed to proxy image." });
+  }
+});
+
 if (!API_KEY) {
   console.warn("WARNING: YT_API_KEY is not set. Add it to backend/.env");
 }
 
 // Helper to call the YouTube Data API
 async function ytFetch(resource, params) {
-  const resp = await axios.get(`${BASE}/${resource}`, {
-    params: { ...params, key: API_KEY },
-  });
-  return resp.data;
+  const maxRetries = 3;
+  const backoff = (attempt) => 250 * Math.pow(2, attempt);
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      const resp = await axios.get(`${BASE}/${resource}`, {
+        params: { ...params, key: API_KEY },
+      });
+      return resp.data;
+    } catch (err) {
+      const status = err?.response?.status;
+      const shouldRetry = status === 429 || status === 500 || status === 503;
+      if (attempt === maxRetries || !shouldRetry) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, backoff(attempt)));
+    }
+  }
 }
 
 function handleError(res, err) {
@@ -375,25 +411,19 @@ app.get("/api/comments", async (req, res) => {
     const keyword = String(req.query.keyword || "").trim().toLowerCase();
     const startDate = req.query.startDate ? new Date(`${req.query.startDate}T00:00:00Z`) : null;
     const endDate = req.query.endDate ? new Date(`${req.query.endDate}T23:59:59Z`) : null;
+    const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
 
-    let allThreads = [];
-    let nextPageToken;
+    const params = {
+      part: "snippet,replies",
+      videoId,
+      maxResults: 20,
+      textFormat: "plainText",
+      order: apiOrder,
+    };
+    if (pageToken) params.pageToken = pageToken;
+    const resp = await ytFetch("commentThreads", params);
 
-    do {
-      const params = {
-        part: "snippet,replies",
-        videoId,
-        maxResults: 100,
-        textFormat: "plainText",
-        order: apiOrder,
-      };
-      if (nextPageToken) params.pageToken = nextPageToken;
-      const resp = await ytFetch("commentThreads", params);
-      allThreads.push(...(resp.items || []));
-      nextPageToken = resp.nextPageToken;
-    } while (nextPageToken);
-
-    const threads = allThreads
+    const threads = (resp.items || [])
       .map((thread) => {
         const top = thread.snippet.topLevelComment;
         const sn = top.snippet;
@@ -453,11 +483,16 @@ app.get("/api/comments", async (req, res) => {
     }
 
     const commentCount = threads.reduce((total, thread) => total + 1 + thread.replies.length, 0);
+    const totalThreads = resp.pageInfo?.totalResults ?? null;
+    const nextPageTokenOut = resp.nextPageToken || null;
 
     res.json({
       videoId,
       commentCount,
       threadCount: threads.length,
+      totalThreads,
+      hasMore: Boolean(nextPageTokenOut),
+      nextPageToken: nextPageTokenOut,
       sort: sort === "latest" ? "latest" : sort === "earliest" ? "earliest" : "top",
       threads,
     });

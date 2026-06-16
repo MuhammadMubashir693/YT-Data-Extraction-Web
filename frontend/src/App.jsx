@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import VideoCard from "./VideoCard.jsx";
+import ImageWithFallback from "./ImageWithFallback.jsx";
+import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
 
 const TABS = [
   { id: "video", label: "Video Details" },
@@ -496,11 +498,11 @@ function ChannelTab() {
       {channel && (
         <div style={{ marginTop: 16 }}>
           {channel.banner !== "N/A" && (
-            <img src={channel.banner} alt="banner" className="banner-img" />
+            <ImageWithFallback src={channel.banner} alt="banner" className="banner-img" />
           )}
           {channel.thumbnail !== "N/A" && (
             <div className="channel-avatar-row">
-              <img src={channel.thumbnail} alt="avatar" className="channel-avatar-large" />
+              <ImageWithFallback src={channel.thumbnail} alt="avatar" className="channel-avatar-large" />
             </div>
           )}
           <div className="channel-card">
@@ -598,7 +600,7 @@ function CommentTab() {
           </div>
           <div className="comment-author-row" style={{ marginTop: 12 }}>
             {comment.authorProfileImageUrl && (
-              <img
+              <ImageWithFallback
                 src={comment.authorProfileImageUrl}
                 alt={comment.authorName}
                 className="comment-avatar"
@@ -619,6 +621,7 @@ function CommentTab() {
 function CommentsTab() {
   const [input, setInput] = useState("");
   const [commentsData, setCommentsData] = useState(null);
+  const [loadedThreads, setLoadedThreads] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sort, setSort] = useState("top");
@@ -627,30 +630,72 @@ function CommentsTab() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [expandedThreads, setExpandedThreads] = useState({});
+  const [nextPageToken, setNextPageToken] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalThreads, setTotalThreads] = useState(null);
+  const { isNearBottom } = useInfiniteScroll({ enabled: hasMore });
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const buildBaseParams = () => {
+    const params = { q: input, sort };
+    if (mode === "keyword" && keyword.trim()) {
+      params.keyword = keyword.trim();
+    }
+    if (mode === "date") {
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+    }
+    return params;
+  };
+
+  const fetchCommentsPage = async ({ pageToken } = {}) => {
     setError("");
-    setCommentsData(null);
     setLoading(true);
     try {
-      const params = { q: input, sort };
-      if (mode === "keyword" && keyword.trim()) {
-        params.keyword = keyword.trim();
-      }
-      if (mode === "date") {
-        if (startDate) params.startDate = startDate;
-        if (endDate) params.endDate = endDate;
-      }
+      const params = buildBaseParams();
+      if (pageToken) params.pageToken = pageToken;
       const data = await apiGet("comments", params);
-      setCommentsData(data);
-      setExpandedThreads({});
+      const pageCommentCount = (data.threads || []).reduce(
+        (total, thread) => total + 1 + thread.replies.length,
+        0
+      );
+      setLoadedThreads((prev) => [...prev, ...(data.threads || [])]);
+      setCommentsData((prev) => ({
+        commentCount: (prev?.commentCount || 0) + pageCommentCount,
+        threadCount: (prev?.threadCount || 0) + (data.threads?.length || 0),
+      }));
+      setNextPageToken(data.nextPageToken || null);
+      setHasMore(Boolean(data.hasMore));
+      setTotalThreads(data.totalThreads || null);
+      setExpandedThreads((prev) => (pageToken ? prev : {}));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setCommentsData(null);
+    setLoadedThreads([]);
+    setNextPageToken(null);
+    setHasMore(false);
+    setTotalThreads(null);
+    setExpandedThreads({});
+    await fetchCommentsPage();
+  };
+
+  const loadMore = async () => {
+    if (!nextPageToken || loading) return;
+    await fetchCommentsPage({ pageToken: nextPageToken });
+  };
+
+  useEffect(() => {
+    if (isNearBottom && hasMore && !loading) {
+      loadMore();
+    }
+  }, [isNearBottom, hasMore, loading, nextPageToken]);
 
   const toggleReplies = (threadId) => {
     setExpandedThreads((prev) => ({
@@ -737,13 +782,20 @@ function CommentsTab() {
       <ErrorBox message={error} />
       {commentsData && (
         <div style={{ marginTop: 16 }}>
-          <p className="result-count">Comment count: {commentsData.commentCount}</p>
-          <p className="result-count">Thread count: {commentsData.threadCount}</p>
-          {commentsData.threads.map((thread) => (
+          <p className="result-count">
+            Comment count: {commentsData.commentCount}
+            {totalThreads ? ` · Total threads: ${totalThreads}` : ""}
+          </p>
+          <p className="result-count">Loaded threads: {commentsData.threadCount}</p>
+          {loadedThreads.map((thread) => (
             <div key={thread.commentId} className="comment-thread">
               <div className="comment-header">
                 {thread.authorProfileImageUrl && (
-                  <img src={thread.authorProfileImageUrl} alt={thread.authorName} className="comment-avatar" />
+                  <ImageWithFallback
+                    src={thread.authorProfileImageUrl}
+                    alt={thread.authorName}
+                    className="comment-avatar"
+                  />
                 )}
                 <div>
                   <div className="comment-meta">
@@ -776,7 +828,11 @@ function CommentsTab() {
                     <div key={reply.commentId} className="comment-reply">
                       <div className="comment-header">
                         {reply.authorProfileImageUrl && (
-                          <img src={reply.authorProfileImageUrl} alt={reply.authorName} className="comment-avatar" />
+                          <ImageWithFallback
+                            src={reply.authorProfileImageUrl}
+                            alt={reply.authorName}
+                            className="comment-avatar"
+                          />
                         )}
                         <div>
                           <div className="comment-meta">
