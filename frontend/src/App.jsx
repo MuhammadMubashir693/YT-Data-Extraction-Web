@@ -6,6 +6,7 @@ import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
 const TABS = [
   { id: "video", label: "Video Details" },
   { id: "channelSearch", label: "Search Videos" },
+  { id: "manageChannels", label: "Manage Channels" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
   { id: "comments", label: "Comments + Replies" },
@@ -89,6 +90,7 @@ function ChannelSearchTab() {
   const [channelId, setChannelId] = useState("");
   const [mode, setMode] = useState("keyword");
   const [keyword, setKeyword] = useState("");
+  const [sortOption, setSortOption] = useState("relevance");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [useDateRange, setUseDateRange] = useState(false);
@@ -97,12 +99,6 @@ function ChannelSearchTab() {
   const [videos, setVideos] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [manageName, setManageName] = useState("");
-  const [manageId, setManageId] = useState("");
-  const [manageSelectedId, setManageSelectedId] = useState("");
-  const [manageMessage, setManageMessage] = useState("");
-  const [manageMessageType, setManageMessageType] = useState("error");
-  const [manageLoading, setManageLoading] = useState(false);
 
   const refreshChannels = async () => {
     try {
@@ -112,15 +108,8 @@ function ChannelSearchTab() {
         if (!data.some((c) => c.id === channelId)) {
           setChannelId(data[0].id);
         }
-        if (!manageSelectedId || !data.some((c) => c.id === manageSelectedId)) {
-          setManageSelectedId(data[0].id);
-          setManageName(data[0].name);
-          setManageId(data[0].id);
-        }
       } else {
-        setManageSelectedId("");
-        setManageName("");
-        setManageId("");
+        setChannelId("");
       }
     } catch {
       // ignore
@@ -150,6 +139,7 @@ function ChannelSearchTab() {
           params.endDate = endDate;
         }
         if (useDuration) params.durationFilter = durationFilter;
+        if (sortOption) params.sort = sortOption;
 
         const data = await apiGet("channel-videos", params);
         setVideos(data.videos);
@@ -158,7 +148,7 @@ function ChannelSearchTab() {
         if (!keyword.trim()) {
           throw new Error("Keyword is required for general video search");
         }
-        const params = { keyword };
+        const params = { keyword, sort: sortOption };
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
         if (useDuration) params.durationFilter = durationFilter;
@@ -170,89 +160,6 @@ function ChannelSearchTab() {
       setError(err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const selectManageChannel = (id) => {
-    const channel = channels.find((c) => c.id === id);
-    if (channel) {
-      setManageSelectedId(id);
-      setManageName(channel.name);
-      setManageId(channel.id);
-    }
-  };
-
-  const handleManageError = (message, type = "error") => {
-    setManageMessage(message);
-    setManageMessageType(type);
-    setTimeout(() => setManageMessage(""), 4000);
-  };
-
-  const createChannel = async () => {
-    setManageLoading(true);
-    try {
-      const res = await fetch("/api/channels", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: manageName.trim(), id: manageId.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't add channel");
-      await refreshChannels();
-      setManageSelectedId(data.id);
-      setChannelId(data.id);
-      handleManageError("Channel added successfully.", "success");
-    } catch (err) {
-      handleManageError(err.message);
-    } finally {
-      setManageLoading(false);
-    }
-  };
-
-  const updateChannel = async () => {
-    if (!manageSelectedId) {
-      return handleManageError("Select a channel to update.");
-    }
-    setManageLoading(true);
-    try {
-      const res = await fetch(`/api/channels/${encodeURIComponent(manageSelectedId)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: manageName.trim(), id: manageId.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't update channel");
-      await refreshChannels();
-      setManageSelectedId(data.id);
-      setChannelId(data.id);
-      handleManageError("Channel updated successfully.", "success");
-    } catch (err) {
-      handleManageError(err.message);
-    } finally {
-      setManageLoading(false);
-    }
-  };
-
-  const deleteChannel = async () => {
-    if (!manageSelectedId) {
-      return handleManageError("Select a channel to delete.");
-    }
-    setManageLoading(true);
-    try {
-      const res = await fetch(`/api/channels/${encodeURIComponent(manageSelectedId)}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't delete channel");
-      await refreshChannels();
-      if (channelId === manageSelectedId) {
-        setChannelId("");
-      }
-      handleManageError("Channel deleted successfully.", "success");
-    } catch (err) {
-      handleManageError(err.message);
-    } finally {
-      setManageLoading(false);
     }
   };
 
@@ -283,76 +190,11 @@ function ChannelSearchTab() {
             ) : (
               <input
                 type="text"
-                placeholder="Channel ID (enter manually or add in the manager below)"
+                placeholder="Channel ID (enter manually or add in Manage Channels tab)"
                 value={channelId}
                 onChange={(e) => setChannelId(e.target.value)}
               />
             )}
-          </div>
-        )}
-
-        {isChannelSearch && (
-          <div className="panel" style={{ marginBottom: 20, background: "var(--panel-2)" }}>
-            <h3>Manage saved channels</h3>
-            <div className="field">
-              <label>Saved channels</label>
-              <select
-                value={manageSelectedId}
-                onChange={(e) => selectManageChannel(e.target.value)}
-              >
-                <option value="">-- Select saved channel --</option>
-                {channels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>Channel name</label>
-              <input
-                type="text"
-                placeholder="Name to display in dropdown"
-                value={manageName}
-                onChange={(e) => setManageName(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label>Channel ID</label>
-              <input
-                type="text"
-                placeholder="Channel ID"
-                value={manageId}
-                onChange={(e) => setManageId(e.target.value)}
-              />
-            </div>
-            <div className="row" style={{ gap: 8 }}>
-              <button
-                type="button"
-                className="secondary"
-                onClick={createChannel}
-                disabled={manageLoading || !manageName.trim() || !manageId.trim()}
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={updateChannel}
-                disabled={manageLoading || !manageSelectedId || !manageName.trim() || !manageId.trim()}
-              >
-                Update
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={deleteChannel}
-                disabled={manageLoading || !manageSelectedId}
-              >
-                Delete
-              </button>
-            </div>
-            {manageMessage && <ErrorBox message={manageMessage} type={manageMessageType} />}
           </div>
         )}
 
@@ -367,27 +209,59 @@ function ChannelSearchTab() {
         )}
 
         {isChannelSearch && mode === "keyword" && (
-          <div className="field">
-            <label>Keyword</label>
-            <input
-              type="text"
-              placeholder="e.g. tutorial"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-          </div>
+          <>
+            <div className="field">
+              <label>Keyword</label>
+              <input
+                type="text"
+                placeholder="e.g. tutorial"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Sort by</label>
+              <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+                <option value="relevance">Relevance</option>
+                <option value="date-desc">Date (newest first)</option>
+                <option value="date-asc">Date (oldest first)</option>
+                <option value="viewCount-desc">View count (highest first)</option>
+                <option value="viewCount-asc">View count (lowest first)</option>
+                <option value="rating-desc">Rating (highest first)</option>
+                <option value="rating-asc">Rating (lowest first)</option>
+                <option value="title-asc">Title (A → Z)</option>
+                <option value="title-desc">Title (Z → A)</option>
+              </select>
+            </div>
+          </>
         )}
 
         {!isChannelSearch && (
-          <div className="field">
-            <label>Keyword</label>
-            <input
-              type="text"
-              placeholder="e.g. tutorial"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-          </div>
+          <>
+            <div className="field">
+              <label>Keyword</label>
+              <input
+                type="text"
+                placeholder="e.g. tutorial"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Sort by</label>
+              <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+                <option value="relevance">Relevance</option>
+                <option value="date-desc">Date (newest first)</option>
+                <option value="date-asc">Date (oldest first)</option>
+                <option value="viewCount-desc">View count (highest first)</option>
+                <option value="viewCount-asc">View count (lowest first)</option>
+                <option value="rating-desc">Rating (highest first)</option>
+                <option value="rating-asc">Rating (lowest first)</option>
+                <option value="title-asc">Title (A → Z)</option>
+                <option value="title-desc">Title (Z → A)</option>
+              </select>
+            </div>
+          </>
         )}
 
         {isChannelSearch && mode === "keyword" && (
@@ -450,6 +324,185 @@ function ChannelSearchTab() {
           ))}
         </>
       )}
+    </div>
+  );
+}
+
+function ChannelManagerTab() {
+  const [channels, setChannels] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("");
+  const [id, setId] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("error");
+  const [loading, setLoading] = useState(false);
+
+  const refreshChannels = async () => {
+    try {
+      const data = await apiGet("channels");
+      setChannels(data);
+      if (data.length && !data.some((c) => c.id === selectedId)) {
+        setSelectedId("");
+        setName("");
+        setId("");
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    refreshChannels();
+  }, []);
+
+  const selectChannel = (channelId) => {
+    const channel = channels.find((c) => c.id === channelId);
+    if (channel) {
+      setSelectedId(channel.id);
+      setName(channel.name);
+      setId(channel.id);
+    } else {
+      setSelectedId("");
+      setName("");
+      setId("");
+    }
+  };
+
+  const notify = (msg, type = "error") => {
+    setMessage(msg);
+    setMessageType(type);
+    setTimeout(() => setMessage(""), 4000);
+  };
+
+  const createChannel = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), id: id.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't add channel");
+      await refreshChannels();
+      setSelectedId(data.id);
+      setName(data.name);
+      setId(data.id);
+      notify("Channel added successfully.", "success");
+    } catch (err) {
+      notify(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateChannel = async () => {
+    if (!selectedId) {
+      return notify("Select a channel to update.");
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/channels/${encodeURIComponent(selectedId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), id: id.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't update channel");
+      await refreshChannels();
+      setSelectedId(data.id);
+      setName(data.name);
+      setId(data.id);
+      notify("Channel updated successfully.", "success");
+    } catch (err) {
+      notify(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteChannel = async () => {
+    if (!selectedId) {
+      return notify("Select a channel to delete.");
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/channels/${encodeURIComponent(selectedId)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't delete channel");
+      await refreshChannels();
+      setSelectedId("");
+      setName("");
+      setId("");
+      notify("Channel deleted successfully.", "success");
+    } catch (err) {
+      notify(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <h2>Manage Channels</h2>
+      <div className="field">
+        <label>Saved channels</label>
+        <select value={selectedId} onChange={(e) => selectChannel(e.target.value)}>
+          <option value="">-- Select saved channel --</option>
+          {channels.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({c.id})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="field">
+        <label>Channel name</label>
+        <input
+          type="text"
+          placeholder="Name to display in dropdown"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label>Channel ID</label>
+        <input
+          type="text"
+          placeholder="Channel ID"
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+        />
+      </div>
+      <div className="row" style={{ gap: 8 }}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={createChannel}
+          disabled={loading || !name.trim() || !id.trim()}
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={updateChannel}
+          disabled={loading || !selectedId || !name.trim() || !id.trim()}
+        >
+          Update
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={deleteChannel}
+          disabled={loading || !selectedId}
+        >
+          Delete
+        </button>
+      </div>
+      {message && <ErrorBox message={message} type={messageType} />}
     </div>
   );
 }
@@ -963,6 +1016,7 @@ export default function App() {
 
       {tab === "video" && <VideoTab />}
       {tab === "channelSearch" && <ChannelSearchTab />}
+      {tab === "manageChannels" && <ChannelManagerTab />}
       {tab === "channel" && <ChannelTab />}
       {tab === "comment" && <CommentTab />}
       {tab === "comments" && <CommentsTab />}

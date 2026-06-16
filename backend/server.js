@@ -110,6 +110,40 @@ function handleError(res, err) {
   res.status(500).json({ error: apiMsg || err.message || "Unknown error" });
 }
 
+function sortVideos(items, sort) {
+  const direction = sort.endsWith("-asc") ? 1 : -1;
+  switch (sort) {
+    case "date-asc":
+    case "date-desc":
+      return items.sort((a, b) =>
+        a.snippet.publishedAt.localeCompare(b.snippet.publishedAt) * direction
+      );
+    case "viewcount-asc":
+    case "viewcount-desc":
+      return items.sort((a, b) =>
+        (Number(a.statistics?.viewCount || 0) - Number(b.statistics?.viewCount || 0)) * direction
+      );
+    case "rating-asc":
+    case "rating-desc":
+      return items.sort((a, b) => {
+        const aLike = Number(a.statistics?.likeCount || 0);
+        const bLike = Number(b.statistics?.likeCount || 0);
+        const aViews = Number(a.statistics?.viewCount || 0);
+        const bViews = Number(b.statistics?.viewCount || 0);
+        const aScore = aViews ? aLike / aViews : aLike;
+        const bScore = bViews ? bLike / bViews : bLike;
+        return (aScore - bScore) * direction;
+      });
+    case "title-asc":
+    case "title-desc":
+      return items.sort((a, b) =>
+        a.snippet.title.localeCompare(b.snippet.title) * direction
+      );
+    default:
+      return items;
+  }
+}
+
 async function loadChannels() {
   if (!channelCollection) return [];
   return await getChannelCollection()
@@ -270,9 +304,8 @@ app.get("/api/channel-videos", async (req, res) => {
       fullItems = fullItems.filter((v) => keywordMatches(v.snippet.title, keyword));
     }
 
-    fullItems.sort((a, b) =>
-      a.snippet.publishedAt.localeCompare(b.snippet.publishedAt)
-    );
+    const sort = String(req.query.sort || "relevance").toLowerCase();
+    sortVideos(fullItems, sort);
 
     const videos = fullItems.map((v) => shapeVideo(v));
     res.json({ videos, count: videos.length });
@@ -623,9 +656,8 @@ app.get("/api/search-videos", async (req, res) => {
       fullItems = fullItems.filter((v) => keywordMatches(v.snippet.title, keyword));
     }
 
-    fullItems.sort((a, b) =>
-      a.snippet.publishedAt.localeCompare(b.snippet.publishedAt)
-    );
+    const sort = String(req.query.sort || "relevance").toLowerCase();
+    sortVideos(fullItems, sort);
 
     const videos = fullItems.map((v) => shapeVideo(v));
     res.json({ videos, count: videos.length });
