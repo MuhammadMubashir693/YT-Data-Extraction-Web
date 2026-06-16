@@ -18,7 +18,7 @@ async function apiGet(path, params = {}) {
   const res = await fetch(`/api/${path}${qs ? `?${qs}` : ""}`);
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error || "Request failed");
+    throw new Error(data.error || "Request couldn't be processed");
   }
   return data;
 }

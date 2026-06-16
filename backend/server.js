@@ -40,7 +40,7 @@ async function initMongo() {
     channelCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL);
     console.log("Connected to MongoDB");
   } catch (err) {
-    console.error("MongoDB connection failed:", err.message);
+    console.error("Could not connect to MongoDB:", err.message);
   }
 }
 
@@ -75,7 +75,7 @@ app.get("/api/proxy-image", async (req, res) => {
     response.data.pipe(res);
   } catch (err) {
     const status = err.response?.status || 502;
-    res.status(status).json({ error: err.message || "Failed to proxy image." });
+    res.status(status).json({ error: err.message || "Could not proxy photo." });
   }
 });
 
