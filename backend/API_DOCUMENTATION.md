@@ -339,7 +339,10 @@ Query parameters:
 
 - `channelId` (required): YouTube channel ID.
 - `mode` (optional): `keyword` or `date`
-- `keyword` (optional): search term used when `mode=keyword`
+- `keyword` (optional): single search term applied across title, description, and channel name when `mode=keyword`. Mutually exclusive with per-field keywords below.
+- `keywordTitle` (optional): keyword matched only against the video title. When any per-field keyword (`keywordTitle`, `keywordDescription`, `keywordChannel`) is provided, `keyword` is ignored for local filtering.
+- `keywordDescription` (optional): keyword matched only against the video description.
+- `keywordChannel` (optional): keyword matched only against the channel name.
 - `startDate` / `endDate` (optional): filter by published date range
 - `durationFilter` (optional): `short`, `medium`, `long`
 - `sort` (optional): `relevance`, `date-asc`, `date-desc`, `viewcount-asc`, `viewcount-desc`, `rating-asc`, `rating-desc`, `title-asc`, `title-desc`
@@ -347,7 +350,11 @@ Query parameters:
 Example request:
 
 ```http
+# Single keyword across all fields
 GET http://localhost:5000/api/channel-videos?channelId=UCX6b17PVsYBQ0ip5gyeme-Q&mode=keyword&keyword=history&startDate=2024-01-01&endDate=2024-06-01&durationFilter=medium&sort=viewcount-desc
+
+# Per-field keywords (title must contain "world war", description must contain "documentary")
+GET http://localhost:5000/api/channel-videos?channelId=UCX6b17PVsYBQ0ip5gyeme-Q&mode=keyword&keywordTitle=world+war&keywordDescription=documentary&sort=date-desc
 ```
 
 Example response:
@@ -388,7 +395,9 @@ Errors:
 
 Notes:
 
-- When `mode=keyword`, the endpoint performs an initial YouTube search and additionally filters matched videos locally by title, description, and channel title.
+- When `mode=keyword`, the endpoint performs an initial YouTube search and additionally filters matched videos locally.
+- **Single keyword mode** (`keyword`): the term is matched against title, description, and channel name combined — a video passes if the keyword appears in any of the three fields.
+- **Per-field keyword mode** (`keywordTitle`, `keywordDescription`, `keywordChannel`): each provided keyword is matched only against its respective field. Empty fields are ignored. All provided keywords must match (AND logic). If any per-field param is present, `keyword` is ignored for local filtering (it is still forwarded to the YouTube search API as a pre-filter).
 - `startDate` and `endDate` are inclusive and converted to UTC range boundaries.
 
 ---
@@ -401,15 +410,24 @@ Description: Search YouTube videos across all channels with optional filters.
 
 Query parameters:
 
-- `keyword` (required): search term.
+- `keyword` (optional): single search term applied across title, description, and channel name. Required if no per-field keyword is provided.
+- `keywordTitle` (optional): keyword matched only against the video title.
+- `keywordDescription` (optional): keyword matched only against the video description.
+- `keywordChannel` (optional): keyword matched only against the channel name.
 - `startDate` / `endDate` (optional): publication date range.
 - `durationFilter` (optional): `short`, `medium`, `long`
 - `sort` (optional): same values as `/api/channel-videos`
 
+At least one of `keyword`, `keywordTitle`, `keywordDescription`, or `keywordChannel` must be provided.
+
 Example request:
 
 ```http
+# Single keyword across all fields
 GET http://localhost:5000/api/search-videos?keyword=space+exploration&startDate=2024-01-01&durationFilter=short&sort=date-desc
+
+# Per-field keywords (title must contain "space", channel name must contain "NASA")
+GET http://localhost:5000/api/search-videos?keywordTitle=space&keywordChannel=NASA&sort=date-desc
 ```
 
 Example response:
@@ -446,11 +464,13 @@ Response:
 
 Errors:
 
-- `400 Bad Request`: missing `keyword`.
+- `400 Bad Request`: no keyword provided (neither `keyword` nor any per-field keyword).
 
 Notes:
 
 - The endpoint first searches YouTube and then fetches enriched video details for the matched ID set.
+- **Single keyword mode** (`keyword`): the term is matched against title, description, and channel name combined.
+- **Per-field keyword mode** (`keywordTitle`, `keywordDescription`, `keywordChannel`): each non-empty keyword is matched only against its respective field with AND logic. When any per-field param is provided, `keyword` is used only as the YouTube API search query, not for local filtering.
 - Search results are limited by YouTube API pagination and the available video metadata.
 
 ---
@@ -757,6 +777,7 @@ The `videos` arrays returned by most endpoints use a consistent shape generated 
 
 - Most errors return `500 Internal Server Error` with JSON `{ error: string }` when the backend encounters an unexpected failure.
 - Validation errors return `400 Bad Request` or `409 Conflict` with a JSON error message.
+- `403 Forbidden`: returned when the YouTube Data API quota is exhausted. The response body contains `{ error: string }` with a human-readable message. Retrying immediately will not help; the quota resets at midnight Pacific Time.
 
 ---
 
