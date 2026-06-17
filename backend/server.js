@@ -14,6 +14,7 @@ import {
   fmtDatetimeAt,
   fmtCountry,
   keywordMatches,
+  keywordMatchesPerField,
   shapeVideo,
 } from "./helpers.js";
 
@@ -252,6 +253,9 @@ app.get("/api/channel-videos", async (req, res) => {
       channelId,
       mode, // 'keyword' | 'date'
       keyword,
+      keywordTitle,
+      keywordDescription,
+      keywordChannel,
       startDate,
       endDate,
       durationFilter, // 'short' | 'medium' | 'long'
@@ -260,6 +264,14 @@ app.get("/api/channel-videos", async (req, res) => {
     if (!channelId) {
       return res.status(400).json({ error: "channelId is required" });
     }
+
+    // Determine if we're in per-field mode
+    const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
+      (k) => k && k.trim()
+    );
+    // For the YouTube search API q= param, use the combined keyword or the title keyword as the
+    // primary signal (the real filtering is done server-side after fetching full details)
+    const apiKeyword = keyword || keywordTitle || "";
 
     const params = {
       part: "snippet",
@@ -271,7 +283,7 @@ app.get("/api/channel-videos", async (req, res) => {
     if (durationFilter) params.videoDuration = durationFilter;
     if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
     if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
-    if (mode === "keyword" && keyword) params.q = keyword;
+    if (mode === "keyword" && apiKeyword) params.q = apiKeyword;
 
     let videoIds = [];
     let nextPage;
@@ -300,10 +312,16 @@ app.get("/api/channel-videos", async (req, res) => {
       fullItems.push(...(vresp.items || []));
     }
 
-    if (mode === "keyword" && keyword) {
-      fullItems = fullItems.filter((v) =>
-        keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
-      );
+    if (mode === "keyword") {
+      if (hasPerField) {
+        fullItems = fullItems.filter((v) =>
+          keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel })
+        );
+      } else if (keyword) {
+        fullItems = fullItems.filter((v) =>
+          keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
+        );
+      }
     }
 
     const sort = String(req.query.sort || "relevance").toLowerCase();
@@ -652,18 +670,30 @@ app.get("/api/search-videos", async (req, res) => {
   try {
     const {
       keyword,
+      keywordTitle,
+      keywordDescription,
+      keywordChannel,
       startDate,
       endDate,
       durationFilter, // 'short' | 'medium' | 'long'
     } = req.query;
 
-    if (!keyword) {
+    // Determine mode
+    const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
+      (k) => k && k.trim()
+    );
+
+    // At least one keyword must be provided
+    if (!keyword && !hasPerField) {
       return res.status(400).json({ error: "keyword is required" });
     }
 
+    // Use the combined keyword or title keyword for the YouTube search API q= param
+    const apiKeyword = keyword || keywordTitle || "";
+
     const params = {
       part: "snippet",
-      q: keyword,
+      q: apiKeyword,
       maxResults: 50,
       order: "date",
       type: "video",
@@ -699,7 +729,11 @@ app.get("/api/search-videos", async (req, res) => {
       fullItems.push(...(vresp.items || []));
     }
 
-    if (keyword) {
+    if (hasPerField) {
+      fullItems = fullItems.filter((v) =>
+        keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel })
+      );
+    } else if (keyword) {
       fullItems = fullItems.filter((v) =>
         keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
       );

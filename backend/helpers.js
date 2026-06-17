@@ -182,6 +182,26 @@ export function keywordMatches(fields, keyword) {
   });
 }
 
+// ── Per-field keyword matching ──────────────────────────────────────────
+
+/**
+ * Checks keyword matches per individual field.
+ * Each of title/description/channel is only checked if its keyword is non-empty.
+ * All provided (non-empty) keywords must match their respective field.
+ * Returns true if at least one keyword is provided and all provided ones match.
+ */
+export function keywordMatchesPerField(snippet, { keywordTitle, keywordDescription, keywordChannel }) {
+  const checks = [
+    { keyword: keywordTitle, field: snippet.title },
+    { keyword: keywordDescription, field: snippet.description },
+    { keyword: keywordChannel, field: snippet.channelTitle },
+  ].filter(({ keyword }) => keyword && keyword.trim());
+
+  if (!checks.length) return true; // nothing to filter on
+
+  return checks.every(({ keyword, field }) => keywordMatches([field], keyword));
+}
+
 // ── Video shaping ───────────────────────────────────────────────────────
 
 export function shapeVideo(item, idOverride) {

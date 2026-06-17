@@ -90,6 +90,10 @@ function ChannelSearchTab() {
   const [channelId, setChannelId] = useState("");
   const [mode, setMode] = useState("keyword");
   const [keyword, setKeyword] = useState("");
+  const [usePerFieldKeywords, setUsePerFieldKeywords] = useState(false);
+  const [keywordTitle, setKeywordTitle] = useState("");
+  const [keywordDescription, setKeywordDescription] = useState("");
+  const [keywordChannel, setKeywordChannel] = useState("");
   const [sortOption, setSortOption] = useState("relevance");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -129,7 +133,13 @@ function ChannelSearchTab() {
       if (searchType === "channel") {
         const params = { channelId, mode };
         if (mode === "keyword") {
-          params.keyword = keyword;
+          if (usePerFieldKeywords) {
+            if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
+            if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
+            if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
+          } else {
+            params.keyword = keyword;
+          }
           if (useDateRange) {
             params.startDate = startDate;
             params.endDate = endDate;
@@ -145,10 +155,21 @@ function ChannelSearchTab() {
         setVideos(data.videos);
       } else {
         // General search
-        if (!keyword.trim()) {
+        const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
+        if (!usePerFieldKeywords && !keyword.trim()) {
           throw new Error("Keyword is required for general video search");
         }
-        const params = { keyword, sort: sortOption };
+        if (usePerFieldKeywords && !hasPerField) {
+          throw new Error("At least one per-field keyword is required");
+        }
+        const params = { sort: sortOption };
+        if (usePerFieldKeywords) {
+          if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
+          if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
+          if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
+        } else {
+          params.keyword = keyword;
+        }
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
         if (useDuration) params.durationFilter = durationFilter;
@@ -210,15 +231,55 @@ function ChannelSearchTab() {
 
         {isChannelSearch && mode === "keyword" && (
           <>
-            <div className="field">
-              <label>Keyword</label>
+            <label className="checkbox-row">
               <input
-                type="text"
-                placeholder="e.g. tutorial"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
+                type="checkbox"
+                checked={usePerFieldKeywords}
+                onChange={(e) => setUsePerFieldKeywords(e.target.checked)}
               />
-            </div>
+              Specify separate keywords per field
+            </label>
+            {usePerFieldKeywords ? (
+              <>
+                <div className="field">
+                  <label>Title keyword</label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to ignore"
+                    value={keywordTitle}
+                    onChange={(e) => setKeywordTitle(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Description keyword</label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to ignore"
+                    value={keywordDescription}
+                    onChange={(e) => setKeywordDescription(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Channel name keyword</label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to ignore"
+                    value={keywordChannel}
+                    onChange={(e) => setKeywordChannel(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="field">
+                <label>Keyword</label>
+                <input
+                  type="text"
+                  placeholder="e.g. tutorial"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+              </div>
+            )}
             <div className="field">
               <label>Sort by</label>
               <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
@@ -238,15 +299,55 @@ function ChannelSearchTab() {
 
         {!isChannelSearch && (
           <>
-            <div className="field">
-              <label>Keyword</label>
+            <label className="checkbox-row">
               <input
-                type="text"
-                placeholder="e.g. tutorial"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
+                type="checkbox"
+                checked={usePerFieldKeywords}
+                onChange={(e) => setUsePerFieldKeywords(e.target.checked)}
               />
-            </div>
+              Specify separate keywords per field
+            </label>
+            {usePerFieldKeywords ? (
+              <>
+                <div className="field">
+                  <label>Title keyword</label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to ignore"
+                    value={keywordTitle}
+                    onChange={(e) => setKeywordTitle(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Description keyword</label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to ignore"
+                    value={keywordDescription}
+                    onChange={(e) => setKeywordDescription(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Channel name keyword</label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to ignore"
+                    value={keywordChannel}
+                    onChange={(e) => setKeywordChannel(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="field">
+                <label>Keyword</label>
+                <input
+                  type="text"
+                  placeholder="e.g. tutorial"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+              </div>
+            )}
             <div className="field">
               <label>Sort by</label>
               <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
@@ -318,7 +419,14 @@ function ChannelSearchTab() {
           </div>
         )}
 
-        <button className="primary" disabled={loading || (isChannelSearch && !channelId) || (!isChannelSearch && !keyword.trim())}>
+        <button className="primary" disabled={
+          loading ||
+          (isChannelSearch && !channelId) ||
+          (!isChannelSearch && !usePerFieldKeywords && !keyword.trim()) ||
+          (!isChannelSearch && usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) ||
+          (isChannelSearch && mode === "keyword" && usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) ||
+          (isChannelSearch && mode === "keyword" && !usePerFieldKeywords && !keyword.trim())
+        }>
           {loading && <Spinner />}
           Search
         </button>
