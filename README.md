@@ -55,7 +55,7 @@ MONGO_COLL=yt-channels
 Start the backend:
 
 ```bash
-npm start
+npm start #or npm run dev
 ```
 
 The server listens on http://localhost:5000 by default.

@@ -97,7 +97,8 @@ async function ytFetch(resource, params) {
       return resp.data;
     } catch (err) {
       const status = err?.response?.status;
-      const shouldRetry = status === 429 || status === 500 || status === 503;
+      const isQuota = isQuotaError(err);
+      const shouldRetry = !isQuota && (status === 429 || status === 500 || status === 503);
       if (attempt === maxRetries || !shouldRetry) {
         throw err;
       }
@@ -106,8 +107,24 @@ async function ytFetch(resource, params) {
   }
 }
 
+function isQuotaError(err) {
+  const errors = err?.response?.data?.error?.errors;
+  if (Array.isArray(errors)) {
+    return errors.some((e) =>
+      ["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"].includes(e.reason)
+    );
+  }
+  const msg = (err?.response?.data?.error?.message || "").toLowerCase();
+  return err?.response?.status === 403 && msg.includes("quota");
+}
+
 function handleError(res, err) {
   const apiMsg = err?.response?.data?.error?.message;
+  if (isQuotaError(err)) {
+    return res.status(403).json({
+      error: apiMsg || "YouTube API quota exceeded. Try again tomorrow.",
+    });
+  }
   res.status(500).json({ error: apiMsg || err.message || "Unknown error" });
 }
 
