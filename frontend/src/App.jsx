@@ -9,7 +9,7 @@ const TABS = [
   { id: "manageChannels", label: "Manage Channels" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
-  { id: "comments", label: "Comments + Replies" },
+  { id: "comments", label: "Comments Section" },
   { id: "playlist", label: "Playlist Details" },
 ];
 
