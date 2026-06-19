@@ -1401,18 +1401,30 @@ function PlaylistTab() {
 function VideoPlayerTab() {
   const [input, setInput] = useState("");
   const [videoId, setVideoId] = useState(null);
+  const [video, setVideo] = useState(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError("");
     setVideoId(null);
+    setVideo(null);
     const id = parseVideoId(input.trim());
     if (!id) {
       setError("Could not extract a valid video ID from the input.");
       return;
     }
     setVideoId(id);
+    setLoading(true);
+    try {
+      const data = await apiGet("video", { q: input });
+      setVideo(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1427,7 +1439,8 @@ function VideoPlayerTab() {
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
-        <button className="primary" disabled={!input.trim()}>
+        <button className="primary" disabled={loading || !input.trim()}>
+          {loading && <Spinner />}
           Load Video
         </button>
       </form>
@@ -1461,16 +1474,11 @@ function VideoPlayerTab() {
               }}
             />
           </div>
-          <p style={{ marginTop: 8, fontSize: 13, opacity: 0.6 }}>
-            Video ID: {videoId} &mdash;{" "}
-            <a
-              href={`https://www.youtube.com/watch?v=${videoId}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open on YouTube
-            </a>
-          </p>
+        </div>
+      )}
+      {video && (
+        <div style={{ marginTop: 16 }}>
+          <VideoCard v={video} />
         </div>
       )}
     </div>

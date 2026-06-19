@@ -98,7 +98,7 @@ For a full API reference, see `backend/API_DOCUMENTATION.md`.
 **Frontend tabs**
 
 - **Video Details** — fetch full details for a single video by ID or URL (all common YouTube URL formats supported).
-- **Video Player** — play an embeddable video by ID or URL directly in the browser using a responsive 16:9 player.
+- **Video Player** — play an embeddable video by ID or URL directly in the browser using a responsive 16:9 player, with the full video details (same as the Video Details tab) displayed below the player.
 - **Search** — search videos, channels, or playlists (selectable category):
   - *Videos* — search within a saved channel or globally, with optional keyword (single or per-field: title, description, channel name), date range, duration type, and sort filters.
   - *Channels* — search by channel name only (channel description is not matched).
