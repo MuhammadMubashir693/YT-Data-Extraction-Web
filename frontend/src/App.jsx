@@ -3,8 +3,34 @@ import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
 
+// ── Client-side video ID parser (mirrors helpers.js) ─────────────────────
+
+function parseVideoId(text) {
+  text = (text || "").trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(text)) return text;
+  try {
+    const url = new URL(text);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    const path = url.pathname;
+    if (host === "youtu.be") {
+      const vid = path.replace(/^\//, "").split("/")[0].split("?")[0];
+      if (/^[A-Za-z0-9_-]{11}$/.test(vid)) return vid;
+    }
+    if (["youtube.com", "music.youtube.com", "m.youtube.com"].includes(host)) {
+      const v = url.searchParams.get("v");
+      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+      const m = path.match(/^\/(embed|shorts|live|v)\/([A-Za-z0-9_-]{11})/);
+      if (m) return m[2];
+    }
+  } catch {
+    // not a URL
+  }
+  return null;
+}
+
 const TABS = [
   { id: "video", label: "Video Details" },
+  { id: "player", label: "Video Player" },
   { id: "channelSearch", label: "Search Videos" },
   { id: "manageChannels", label: "Manage Channels" },
   { id: "channel", label: "Channel Details" },
@@ -1243,6 +1269,87 @@ function PlaylistTab() {
   );
 }
 
+// ── Tab: Video Player ────────────────────────────────────────────────────
+
+function VideoPlayerTab() {
+  const [input, setInput] = useState("");
+  const [videoId, setVideoId] = useState(null);
+  const [error, setError] = useState("");
+
+  const submit = (e) => {
+    e.preventDefault();
+    setError("");
+    setVideoId(null);
+    const id = parseVideoId(input.trim());
+    if (!id) {
+      setError("Could not extract a valid video ID from the input.");
+      return;
+    }
+    setVideoId(id);
+  };
+
+  return (
+    <div className="panel">
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>Video ID or URL</label>
+          <input
+            type="text"
+            placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+        </div>
+        <button className="primary" disabled={!input.trim()}>
+          Load Video
+        </button>
+      </form>
+      <ErrorBox message={error} />
+      {videoId && (
+        <div style={{ marginTop: 16 }}>
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              paddingBottom: "56.25%",
+              background: "#000",
+              borderRadius: 8,
+              overflow: "hidden",
+            }}
+          >
+            <iframe
+              key={videoId}
+              src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&controls=1&fs=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
+              title="YouTube video player"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                border: "none",
+              }}
+            />
+          </div>
+          <p style={{ marginTop: 8, fontSize: 13, opacity: 0.6 }}>
+            Video ID: {videoId} &mdash;{" "}
+            <a
+              href={`https://www.youtube.com/watch?v=${videoId}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open on YouTube
+            </a>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1283,6 +1390,7 @@ export default function App() {
       </div>
 
       {tab === "video" && <VideoTab />}
+      {tab === "player" && <VideoPlayerTab />}
       {tab === "channelSearch" && <ChannelSearchTab />}
       {tab === "manageChannels" && <ChannelManagerTab />}
       {tab === "channel" && <ChannelTab />}
