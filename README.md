@@ -86,6 +86,8 @@ The backend exposes a JSON API under `/api`:
 - `DELETE /api/channels/:id` — delete a saved channel.
 - `GET /api/channel-videos?channelId=...&mode=keyword|date&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — fetch videos for a channel with optional keyword, date range, duration, and sort filters.
 - `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — general video search with the same filter options.
+- `GET /api/search-channels?keyword=...&maxResults=...` — search YouTube channels by name (channel description is not searched).
+- `GET /api/search-playlists?keyword=...&keywordTitle=...&keywordChannel=...&maxResults=...` — search YouTube playlists by a single keyword (across playlist title and channel title) or by separate per-field keywords for playlist title and channel title.
 - `GET /api/comment?q=<id|url-with-lc>` — fetch a single comment by ID or `lc` URL parameter.
 - `GET /api/comments?q=<videoId|url>&sort=top|latest|earliest|likes-desc|likes-asc&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — fetch comment threads with replies for a video.
 - `GET /api/comment-replies?parentId=...&pageToken=...` — fetch replies for a top-level comment.
@@ -97,7 +99,10 @@ For a full API reference, see `backend/API_DOCUMENTATION.md`.
 
 - **Video Details** — fetch full details for a single video by ID or URL (all common YouTube URL formats supported).
 - **Video Player** — play an embeddable video by ID or URL directly in the browser using a responsive 16:9 player.
-- **Search Videos** — search videos within a saved channel or globally, with optional keyword (single or per-field: title, description, channel name), date range, duration type, and sort filters.
+- **Search** — search videos, channels, or playlists (selectable category):
+  - *Videos* — search within a saved channel or globally, with optional keyword (single or per-field: title, description, channel name), date range, duration type, and sort filters.
+  - *Channels* — search by channel name only (channel description is not matched).
+  - *Playlists* — search with a single keyword (matched against playlist title and channel title) or with separate per-field keywords for playlist title and channel title.
 - **Manage Channels** — add, update, and delete saved channels stored in MongoDB for use in Search Videos.
 - **Channel Details** — fetch channel metadata (subscriber count, view count, video count, country, description, banner, avatar) and its public playlists with sort options.
 - **Comment Details** — fetch a single comment by ID or YouTube URL with `lc=` parameter.

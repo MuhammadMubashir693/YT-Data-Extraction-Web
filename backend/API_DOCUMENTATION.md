@@ -475,7 +475,129 @@ Notes:
 
 ---
 
-## Single Comment Lookup
+## Channel Search
+
+### GET `/api/search-channels`
+
+Description: Search YouTube channels by name.
+
+Query parameters:
+
+- `keyword` (required): search term matched only against the channel name (title). Channel descriptions are **not** searched or matched against.
+- `maxResults` (optional): maximum number of results to return, 1–500. Default: 50.
+
+Example request:
+
+```http
+GET http://localhost:5000/api/search-channels?keyword=NASA&maxResults=50
+```
+
+Example response:
+
+```json
+{
+  "channels": [
+    {
+      "channelId": "UCBI3mAQwY3Ssf8fVdCxYrrA",
+      "channelUrl": "https://www.youtube.com/channel/UCBI3mAQwY3Ssf8fVdCxYrrA",
+      "title": "NASA",
+      "description": "NASA's official YouTube channel.",
+      "country": "United States",
+      "publishedAt": "Tuesday, July 10, 2007 00:00:00 UTC",
+      "subscribers": "10500000",
+      "videoCount": "10234",
+      "viewCount": "987654321",
+      "thumbnail": "https://yt3.googleusercontent.com/abcd1234"
+    }
+  ],
+  "count": 1
+}
+```
+
+Response:
+
+- `200 OK`
+- JSON object:
+  - `channels`: array of shaped channel objects (`channelId`, `channelUrl`, `title`, `description`, `country`, `publishedAt`, `subscribers`, `videoCount`, `viewCount`, `thumbnail`)
+  - `count`: number of returned channels
+
+Errors:
+
+- `400 Bad Request`: missing or empty `keyword`.
+
+Notes:
+
+- The endpoint first searches YouTube for matching channels, then fetches enriched channel details for the matched ID set.
+- Matching is performed **only against the channel name (title)**. The channel `description` is included in the response for display purposes but is never used as a search-matching field.
+- There is no per-field keyword mode for channel search, since name is the only searchable field.
+
+---
+
+## Playlist Search
+
+### GET `/api/search-playlists`
+
+Description: Search YouTube playlists across all channels.
+
+Query parameters:
+
+- `keyword` (optional): single search term matched against playlist title and channel title combined. Required if no per-field keyword is provided.
+- `keywordTitle` (optional): keyword matched only against the playlist title.
+- `keywordChannel` (optional): keyword matched only against the channel title.
+- `maxResults` (optional): maximum number of results to return, 1–500. Default: 50.
+
+At least one of `keyword`, `keywordTitle`, or `keywordChannel` must be provided.
+
+Example request:
+
+```http
+# Single keyword across playlist title and channel title
+GET http://localhost:5000/api/search-playlists?keyword=cooking+basics&maxResults=50
+
+# Per-field keywords (playlist title must contain "basics", channel title must contain "Tasty")
+GET http://localhost:5000/api/search-playlists?keywordTitle=basics&keywordChannel=Tasty
+```
+
+Example response:
+
+```json
+{
+  "playlists": [
+    {
+      "playlistId": "PLynG1pZ1ZgJzHYlq3F4u1xY8NFe8r0Kkp",
+      "playlistUrl": "https://www.youtube.com/playlist?list=PLynG1pZ1ZgJzHYlq3F4u1xY8NFe8r0Kkp",
+      "title": "Cooking Basics",
+      "channelId": "UC8butISFwT-Wl7EV0hUK0BQ",
+      "channelTitle": "Tasty",
+      "publishedAt": "Friday, March 01, 2024 08:00:00 UTC",
+      "videoCount": 24,
+      "thumbnail": "https://i.ytimg.com/vi/a1b2c3d4e5f/hqdefault.jpg"
+    }
+  ],
+  "count": 1
+}
+```
+
+Response:
+
+- `200 OK`
+- JSON object:
+  - `playlists`: array of shaped playlist objects (`playlistId`, `playlistUrl`, `title`, `channelId`, `channelTitle`, `publishedAt`, `videoCount`, `thumbnail`)
+  - `count`: number of returned playlists
+
+Errors:
+
+- `400 Bad Request`: no keyword provided (neither `keyword` nor any per-field keyword).
+
+Notes:
+
+- The endpoint first searches YouTube for matching playlists, then fetches enriched playlist details for the matched ID set.
+- **Single keyword mode** (`keyword`): the term is matched against playlist title and channel title combined — a playlist passes if the keyword appears in either field.
+- **Per-field keyword mode** (`keywordTitle`, `keywordChannel`): each non-empty keyword is matched only against its respective field with AND logic. When any per-field param is provided, `keyword` is used only as the YouTube API search query, not for local filtering.
+
+---
+
+
 
 ### GET `/api/comment`
 

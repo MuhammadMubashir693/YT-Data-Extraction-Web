@@ -183,12 +183,12 @@ function ChannelSearchTab() {
 
   // Channel search state
   const [chKeyword, setChKeyword] = useState("");
-  const [chUsePerField, setChUsePerField] = useState(false);
-  const [chKeywordName, setChKeywordName] = useState("");
-  const [chKeywordDescription, setChKeywordDescription] = useState("");
 
   // Playlist search state
   const [plKeyword, setPlKeyword] = useState("");
+  const [plUsePerField, setPlUsePerField] = useState(false);
+  const [plKeywordTitle, setPlKeywordTitle] = useState("");
+  const [plKeywordChannel, setPlKeywordChannel] = useState("");
 
   // Shared max results
   const [maxResults, setMaxResults] = useState("50");
@@ -277,21 +277,22 @@ function ChannelSearchTab() {
           setVideos(data.videos);
         }
       } else if (category === "channel") {
-        const hasPerField = chUsePerField && (chKeywordName.trim() || chKeywordDescription.trim());
-        if (!chUsePerField && !chKeyword.trim()) throw new Error("Keyword is required for channel search");
-        if (chUsePerField && !hasPerField) throw new Error("At least one per-field keyword is required");
-        const params = { maxResults };
-        if (chUsePerField) {
-          if (chKeywordName.trim()) params.keywordName = chKeywordName.trim();
-          if (chKeywordDescription.trim()) params.keywordDescription = chKeywordDescription.trim();
-        } else {
-          params.keyword = chKeyword.trim();
-        }
+        if (!chKeyword.trim()) throw new Error("Keyword is required for channel search");
+        const params = { keyword: chKeyword.trim(), maxResults };
         const data = await apiGet("search-channels", params);
         setChannelResults(data.channels);
       } else {
-        if (!plKeyword.trim()) throw new Error("Keyword is required for playlist search");
-        const data = await apiGet("search-playlists", { keyword: plKeyword.trim(), maxResults });
+        const hasPerField = plUsePerField && (plKeywordTitle.trim() || plKeywordChannel.trim());
+        if (!plUsePerField && !plKeyword.trim()) throw new Error("Keyword is required for playlist search");
+        if (plUsePerField && !hasPerField) throw new Error("At least one per-field keyword is required");
+        const params = { maxResults };
+        if (plUsePerField) {
+          if (plKeywordTitle.trim()) params.keywordTitle = plKeywordTitle.trim();
+          if (plKeywordChannel.trim()) params.keywordChannel = plKeywordChannel.trim();
+        } else {
+          params.keyword = plKeyword.trim();
+        }
+        const data = await apiGet("search-playlists", params);
         setPlaylistResults(data.playlists);
       }
     } catch (err) {
@@ -317,10 +318,10 @@ function ChannelSearchTab() {
         if (!usePerFieldKeywords && !keyword.trim()) return true;
       }
     } else if (category === "channel") {
-      if (chUsePerField && !chKeywordName.trim() && !chKeywordDescription.trim()) return true;
-      if (!chUsePerField && !chKeyword.trim()) return true;
+      if (!chKeyword.trim()) return true;
     } else {
-      if (!plKeyword.trim()) return true;
+      if (plUsePerField && !plKeywordTitle.trim() && !plKeywordChannel.trim()) return true;
+      if (!plUsePerField && !plKeyword.trim()) return true;
     }
     return false;
   })();
@@ -517,37 +518,37 @@ function ChannelSearchTab() {
 
         {/* ══ CHANNEL fields ══ */}
         {category === "channel" && (
+          <div className="field">
+            <label>Channel name keyword</label>
+            <input type="text" placeholder="Search by channel name" value={chKeyword} onChange={(e) => setChKeyword(e.target.value)} />
+          </div>
+        )}
+
+        {/* ══ PLAYLIST fields ══ */}
+        {category === "playlist" && (
           <>
             <label className="checkbox-row">
-              <input type="checkbox" checked={chUsePerField} onChange={(e) => setChUsePerField(e.target.checked)} />
+              <input type="checkbox" checked={plUsePerField} onChange={(e) => setPlUsePerField(e.target.checked)} />
               Specify separate keywords per field
             </label>
-            {chUsePerField ? (
+            {plUsePerField ? (
               <>
                 <div className="field">
-                  <label>Channel name keyword</label>
-                  <input type="text" placeholder="Leave empty to ignore" value={chKeywordName} onChange={(e) => setChKeywordName(e.target.value)} />
+                  <label>Playlist title keyword</label>
+                  <input type="text" placeholder="Leave empty to ignore" value={plKeywordTitle} onChange={(e) => setPlKeywordTitle(e.target.value)} />
                 </div>
                 <div className="field">
-                  <label>Description keyword</label>
-                  <input type="text" placeholder="Leave empty to ignore" value={chKeywordDescription} onChange={(e) => setChKeywordDescription(e.target.value)} />
+                  <label>Channel title keyword</label>
+                  <input type="text" placeholder="Leave empty to ignore" value={plKeywordChannel} onChange={(e) => setPlKeywordChannel(e.target.value)} />
                 </div>
               </>
             ) : (
               <div className="field">
                 <label>Keyword</label>
-                <input type="text" placeholder="Search channel name and description" value={chKeyword} onChange={(e) => setChKeyword(e.target.value)} />
+                <input type="text" placeholder="e.g. cooking basics" value={plKeyword} onChange={(e) => setPlKeyword(e.target.value)} />
               </div>
             )}
           </>
-        )}
-
-        {/* ══ PLAYLIST fields ══ */}
-        {category === "playlist" && (
-          <div className="field">
-            <label>Title keyword</label>
-            <input type="text" placeholder="e.g. cooking basics" value={plKeyword} onChange={(e) => setPlKeyword(e.target.value)} />
-          </div>
         )}
 
         {/* ── Max results (shared) ── */}

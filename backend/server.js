@@ -807,18 +807,16 @@ app.get("/api/search-videos", async (req, res) => {
 
 app.get("/api/search-channels", async (req, res) => {
   try {
-    const { keyword, keywordName, keywordDescription, maxResults } = req.query;
+    const { keyword, maxResults } = req.query;
 
-    const hasPerField = [keywordName, keywordDescription].some((k) => k && k.trim());
-
-    if (!keyword && !hasPerField) {
-      return res.status(400).json({ error: "At least one keyword is required." });
+    if (!keyword || !keyword.trim()) {
+      return res.status(400).json({ error: "keyword is required." });
     }
 
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
 
-    // Use the broadest keyword for the YouTube search API q= param
-    const apiKeyword = keyword || keywordName || keywordDescription || "";
+    // Use the keyword for the YouTube search API q= param
+    const apiKeyword = keyword;
 
     let channelIds = [];
     let nextPage;
@@ -856,20 +854,11 @@ app.get("/api/search-channels", async (req, res) => {
       fullItems.push(...(resp.items || []));
     }
 
-    // Server-side keyword filtering
-    if (hasPerField) {
-      fullItems = fullItems.filter((ch) => {
-        const name = ch.snippet?.title || "";
-        const desc = ch.snippet?.description || "";
-        if (keywordName && keywordName.trim() && !keywordMatches([name], keywordName)) return false;
-        if (keywordDescription && keywordDescription.trim() && !keywordMatches([desc], keywordDescription)) return false;
-        return true;
-      });
-    } else if (keyword) {
-      fullItems = fullItems.filter((ch) =>
-        keywordMatches([ch.snippet?.title || "", ch.snippet?.description || ""], keyword)
-      );
-    }
+    // Server-side keyword filtering — matched only against the channel name (title),
+    // not the channel description.
+    fullItems = fullItems.filter((ch) =>
+      keywordMatches([ch.snippet?.title || ""], keyword)
+    );
 
     const channels = fullItems.map((ch) => {
       const sn = ch.snippet || {};
@@ -903,20 +892,26 @@ app.get("/api/search-channels", async (req, res) => {
 
 app.get("/api/search-playlists", async (req, res) => {
   try {
-    const { keyword, maxResults } = req.query;
+    const { keyword, keywordTitle, keywordChannel, maxResults } = req.query;
 
-    if (!keyword || !keyword.trim()) {
+    const hasPerField = [keywordTitle, keywordChannel].some((k) => k && k.trim());
+
+    // At least one keyword must be provided
+    if (!keyword && !hasPerField) {
       return res.status(400).json({ error: "keyword is required." });
     }
 
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
+
+    // Use the combined keyword or the title keyword for the YouTube search API q= param
+    const apiKeyword = keyword || keywordTitle || "";
 
     let playlistIds = [];
     let nextPage;
     do {
       const p = {
         part: "snippet",
-        q: keyword,
+        q: apiKeyword,
         maxResults: 50,
         type: "playlist",
       };
@@ -947,10 +942,20 @@ app.get("/api/search-playlists", async (req, res) => {
       fullItems.push(...(resp.items || []));
     }
 
-    // Server-side title keyword filtering
-    fullItems = fullItems.filter((pl) =>
-      keywordMatches([pl.snippet?.title || ""], keyword)
-    );
+    // Server-side keyword filtering
+    if (hasPerField) {
+      fullItems = fullItems.filter((pl) => {
+        const title = pl.snippet?.title || "";
+        const channelTitle = pl.snippet?.channelTitle || "";
+        if (keywordTitle && keywordTitle.trim() && !keywordMatches([title], keywordTitle)) return false;
+        if (keywordChannel && keywordChannel.trim() && !keywordMatches([channelTitle], keywordChannel)) return false;
+        return true;
+      });
+    } else if (keyword) {
+      fullItems = fullItems.filter((pl) =>
+        keywordMatches([pl.snippet?.title || "", pl.snippet?.channelTitle || ""], keyword)
+      );
+    }
 
     const playlists = fullItems.map((pl) => {
       const sn = pl.snippet || {};
