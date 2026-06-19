@@ -1,18 +1,18 @@
 # YouTube Data Extraction Tool (Web)
 
 React + Node/Express web app that uses the YouTube Data API v3 to fetch
-video, channel, playlist and comment information and provides a small UI
-for searching and browsing results.
+video, channel, playlist, and comment information, and provides a UI for
+searching, browsing, and playing results.
 
 **Repository structure**
 
 ```
 YT-Data-Extraction-Web/
-├── backend/      # Express API server (Node, MongoDB-backed channel storage)
+├── backend/
 │   ├── server.js
 │   ├── helpers.js
-   └── package.json
-└── frontend/     # React + Vite app
+│   └── package.json
+└── frontend/
     ├── src/
     ├── vite.config.js
     └── package.json
@@ -55,7 +55,7 @@ MONGO_COLL=yt-channels
 Start the backend:
 
 ```bash
-npm start #or npm run dev
+npm start   # or: npm run dev
 ```
 
 The server listens on http://localhost:5000 by default.
@@ -75,35 +75,47 @@ Open http://localhost:5173 in your browser.
 
 **API endpoints**
 
-The backend exposes a small JSON API under `/api`:
+The backend exposes a JSON API under `/api`:
 
-- `GET /api/health` — basic health check; returns `{ ok: true, apiKeySet: boolean }`.
+- `GET /api/health` — health check; returns `{ ok: true, apiKeySet: boolean }`.
 - `GET /api/video?q=<id|url>` — fetch single video details.
 - `GET /api/channel?q=<id|url|handle>` — fetch channel details and public playlists.
 - `GET /api/channels` — list saved channels (MongoDB-backed).
-- `POST /api/channels` — add saved channel; JSON body: `{ name, id }`.
-- `PUT /api/channels/:currentId` — update saved channel; JSON body: `{ name, id }`.
-- `DELETE /api/channels/:id` — delete saved channel.
-- `GET /api/channel-videos?channelId=...&mode=keyword|date&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long` — fetch videos for a channel with optional filters.
-- `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long` — general video search.
-- `GET /api/comment?q=<id|url-with-lc>` — fetch a single comment by ID or `lc` param.
-- `GET /api/comments?q=<videoId|url>&sort=top|latest|earliest&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — fetch comment threads and replies for a video.
+- `POST /api/channels` — add a saved channel; JSON body: `{ name, id }`.
+- `PUT /api/channels/:currentId` — update a saved channel; JSON body: `{ name, id }`.
+- `DELETE /api/channels/:id` — delete a saved channel.
+- `GET /api/channel-videos?channelId=...&mode=keyword|date&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — fetch videos for a channel with optional keyword, date range, duration, and sort filters.
+- `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — general video search with the same filter options.
+- `GET /api/comment?q=<id|url-with-lc>` — fetch a single comment by ID or `lc` URL parameter.
+- `GET /api/comments?q=<videoId|url>&sort=top|latest|earliest|likes-desc|likes-asc&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — fetch comment threads with replies for a video.
 - `GET /api/comment-replies?parentId=...&pageToken=...` — fetch replies for a top-level comment.
-- `GET /api/playlist?q=<id|url>` — fetch playlist metadata and videos.
+- `GET /api/playlist?q=<id|url>&sort=...` — fetch playlist metadata and videos.
 
 For a full API reference, see `backend/API_DOCUMENTATION.md`.
 
-**Frontend features**
+**Frontend tabs**
 
-- Fetch single video details by ID or URL.
-- Search videos within a saved channel or globally.
-- Manage saved channels (add, update, delete) — saved to MongoDB.
-- Fetch channel details (including public playlists).
-- Fetch single comments or comment threads with replies, with keyword/date filters and sorting.
-- Fetch playlist videos by playlist ID or URL.
+- **Video Details** — fetch full details for a single video by ID or URL (all common YouTube URL formats supported).
+- **Video Player** — play an embeddable video by ID or URL directly in the browser using a responsive 16:9 player.
+- **Search Videos** — search videos within a saved channel or globally, with optional keyword (single or per-field: title, description, channel name), date range, duration type, and sort filters.
+- **Manage Channels** — add, update, and delete saved channels stored in MongoDB for use in Search Videos.
+- **Channel Details** — fetch channel metadata (subscriber count, view count, video count, country, description, banner, avatar) and its public playlists with sort options.
+- **Comment Details** — fetch a single comment by ID or YouTube URL with `lc=` parameter.
+- **Comments Section** — fetch comment threads and paginated replies for a video, with keyword or date range filtering and multiple sort options.
+- **Playlist Details** — fetch playlist metadata and its videos with sort options.
+
+**Input formats supported**
+
+All ID/URL inputs accept multiple formats:
+
+- Videos: bare video ID, `youtube.com/watch?v=`, `youtu.be/`, `youtube.com/shorts/`, `youtube.com/live/`, `youtube.com/embed/`, `music.youtube.com`, `m.youtube.com`
+- Channels: bare channel ID (`UCxxxx`), `youtube.com/channel/`, `youtube.com/@handle`, `youtube.com/c/`, `youtube.com/user/`, or a bare handle with or without `@`
+- Playlists: bare playlist ID or any YouTube URL containing a `list=` parameter
+- Comments: bare comment ID or a YouTube URL containing `lc=` parameter
 
 **Notes & caveats**
 
-- The YouTube Data API has daily quota limits; search and playlist operations can consume quota quickly.
-- The app uses only read-only API calls — an API key is sufficient (no OAuth).
-- If MongoDB is not available, channel management endpoints will fail; the backend prints a warning when it cannot connect.
+- The YouTube Data API has daily quota limits; search and playlist operations consume quota more quickly than single-item lookups.
+- Only read-only API calls are made — an API key is sufficient, no OAuth required.
+- The Video Player can only play videos that the uploader has enabled for embedding on external sites; age-restricted or embedding-disabled videos will show YouTube's own error regardless of player configuration.
+- If MongoDB is unavailable, channel management endpoints will fail; the backend logs a warning on startup when it cannot connect.
