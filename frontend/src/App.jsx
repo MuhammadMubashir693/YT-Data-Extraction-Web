@@ -437,7 +437,7 @@ function ChannelSearchTab() {
       {videos && (
         <>
           <p className="result-count">Result count: {videos.length}</p>
-          {videos.map((v) => (
+          {videos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
         </>
@@ -718,7 +718,7 @@ function ChannelTab() {
                 <span><b>Video Count:</b> {channel.videoCount}</span>
               </div>
               {channel.description && (
-                <div className="description" style={{ marginTop: 10 }}>
+                <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
                   {channel.description}
                 </div>
               )}
@@ -1042,7 +1042,7 @@ function CommentsTab() {
                   </div>
                 </div>
               </div>
-              <div className="description" style={{ marginTop: 10 }}>{thread.textDisplay}</div>
+              <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>{thread.textDisplay}</div>
               {thread.replyCount > 0 && (
                 <button
                   type="button"
@@ -1156,7 +1156,7 @@ function RepliesList({ thread, replyState, loadMoreReplies }) {
               </div>
             </div>
           </div>
-          <div className="description" style={{ marginTop: 10 }}>{reply.textDisplay}</div>
+          <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>{reply.textDisplay}</div>
         </div>
       ))}
       {replyState.loading && <div className="message-box secondary" style={{ marginTop: 10 }}>Loading replies...</div>}
@@ -1234,7 +1234,7 @@ function PlaylistTab() {
             </div>
           )}
           <p className="result-count" style={{ marginTop: 16 }}>Video count: {data.videos.length}</p>
-          {data.videos.map((v) => (
+          {data.videos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
         </>

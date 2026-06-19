@@ -20,7 +20,7 @@ export default function VideoCard({ v }) {
           <span><b>Likes:</b> {v.likes}</span>
           <span><b>Comments:</b> {v.comments}</span>
         </div>
-        {v.description && <div className="description">{v.description}</div>}
+        {v.description && <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>{v.description}</div>}
       </div>
     </div>
   );
