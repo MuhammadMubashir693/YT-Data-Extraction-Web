@@ -400,13 +400,16 @@ app.get("/api/channel", async (req, res) => {
         pageToken: playlistPageToken,
       });
       for (const item of playlistResp.items || []) {
+        const rawCount = item.contentDetails?.itemCount;
         playlists.push({
           playlistId: item.id,
           playlistUrl: `https://www.youtube.com/playlist?list=${item.id}`,
           title: item.snippet?.title || "N/A",
           channelId: item.snippet?.channelId || ch.id,
           publishedAt: fmtDatetime(item.snippet?.publishedAt),
-          videoCount: item.contentDetails?.itemCount ?? "N/A",
+          publishedAtRaw: item.snippet?.publishedAt || null,
+          videoCount: rawCount ?? "N/A",
+          videoCountRaw: rawCount != null ? Number(rawCount) : null,
         });
       }
       playlistPageToken = playlistResp.nextPageToken;
@@ -476,12 +479,30 @@ app.get("/api/comments", async (req, res) => {
       return res.status(400).json({ error: "Could not parse a valid video ID from the input." });
     }
 
-    const sort = String(req.query.sort || "top").toLowerCase();
+    const validSorts = ["top", "latest", "earliest", "likes-desc", "likes-asc"];
+    const sortIn = String(req.query.sort || "top").toLowerCase();
+    const sort = validSorts.includes(sortIn) ? sortIn : "top";
+    // The YouTube API only natively supports ordering by "relevance" (top) or "time" (latest).
+    // earliest/likes-asc/likes-desc are achieved by fetching with "time" order and re-sorting
+    // the page locally, since the API has no native ascending-time or likes ordering.
     const apiOrder = sort === "top" ? "relevance" : "time";
     const keyword = String(req.query.keyword || "").trim().toLowerCase();
     const startDate = req.query.startDate ? new Date(`${req.query.startDate}T00:00:00Z`) : null;
     const endDate = req.query.endDate ? new Date(`${req.query.endDate}T23:59:59Z`) : null;
     const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
+
+    // Real, stable total comment count for the video, taken from the videos endpoint
+    // (statistics.commentCount). This is fetched once per request and is NOT derived from
+    // however many threads/replies happen to have been paged in on the client, so it won't
+    // drift as more pages are loaded.
+    let totalCommentCount = null;
+    try {
+      const videoStats = await ytFetch("videos", { part: "statistics", id: videoId });
+      const raw = videoStats.items?.[0]?.statistics?.commentCount;
+      totalCommentCount = raw != null ? Number(raw) : null;
+    } catch {
+      // Non-fatal: leave totalCommentCount as null if this lookup fails.
+    }
 
     const params = {
       part: "snippet,replies",
@@ -503,6 +524,7 @@ app.get("/api/comments", async (req, res) => {
             commentId: reply.id,
             authorName: rs.authorDisplayName,
             authorChannelId: rs.authorChannelId?.value || "N/A",
+            authorChannelUrl: rs.authorChannelUrl || null,
             authorProfileImageUrl: rs.authorProfileImageUrl || null,
             likeCount: rs.likeCount ?? 0,
             publishedAt: fmtDatetimeAt(rs.publishedAt),
@@ -516,6 +538,7 @@ app.get("/api/comments", async (req, res) => {
           commentId: top.id,
           authorName: sn.authorDisplayName,
           authorChannelId: sn.authorChannelId?.value || "N/A",
+          authorChannelUrl: sn.authorChannelUrl || null,
           authorProfileImageUrl: sn.authorProfileImageUrl || null,
           likeCount: sn.likeCount ?? 0,
           publishedAt: fmtDatetimeAt(sn.publishedAt),
@@ -550,20 +573,20 @@ app.get("/api/comments", async (req, res) => {
       threads.sort((a, b) => new Date(a.publishedAtRaw) - new Date(b.publishedAtRaw));
     } else if (sort === "latest") {
       threads.sort((a, b) => new Date(b.publishedAtRaw) - new Date(a.publishedAtRaw));
+    } else if (sort === "likes-desc") {
+      threads.sort((a, b) => Number(b.likeCount) - Number(a.likeCount));
+    } else if (sort === "likes-asc") {
+      threads.sort((a, b) => Number(a.likeCount) - Number(b.likeCount));
     }
 
-    const commentCount = threads.reduce((total, thread) => total + 1 + thread.replies.length, 0);
-    const totalThreads = resp.pageInfo?.totalResults ?? null;
     const nextPageTokenOut = resp.nextPageToken || null;
 
     res.json({
       videoId,
-      commentCount,
-      threadCount: threads.length,
-      totalThreads,
+      commentCount: totalCommentCount,
       hasMore: Boolean(nextPageTokenOut),
       nextPageToken: nextPageTokenOut,
-      sort: sort === "latest" ? "latest" : sort === "earliest" ? "earliest" : "top",
+      sort,
       threads,
     });
   } catch (err) {
@@ -594,6 +617,7 @@ app.get("/api/comment-replies", async (req, res) => {
         commentId: reply.id,
         authorName: rs.authorDisplayName,
         authorChannelId: rs.authorChannelId?.value || "N/A",
+        authorChannelUrl: rs.authorChannelUrl || null,
         authorProfileImageUrl: rs.authorProfileImageUrl || null,
         likeCount: rs.likeCount ?? 0,
         publishedAt: fmtDatetimeAt(rs.publishedAt),
@@ -673,6 +697,9 @@ app.get("/api/playlist", async (req, res) => {
     fullItems.sort((a, b) =>
       a.snippet.publishedAt.localeCompare(b.snippet.publishedAt)
     );
+
+    const sort = String(req.query.sort || "date-asc").toLowerCase();
+    sortVideos(fullItems, sort);
 
     const videos = fullItems.map((v) => shapeVideo(v));
     res.json({ playlistInfo, videos, count: videos.length });

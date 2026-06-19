@@ -632,6 +632,7 @@ function ChannelTab() {
   const [channel, setChannel] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [playlistSort, setPlaylistSort] = useState("date-desc");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -641,12 +642,40 @@ function ChannelTab() {
     try {
       const data = await apiGet("channel", { q: input });
       setChannel(data);
+      setPlaylistSort("date-desc");
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  const sortedPlaylists = (() => {
+    if (!channel?.playlists?.length) return [];
+    const items = [...channel.playlists];
+    const direction = playlistSort.endsWith("-asc") ? 1 : -1;
+    switch (playlistSort) {
+      case "date-asc":
+      case "date-desc":
+        return items.sort((a, b) => {
+          const aTime = a.publishedAtRaw ? new Date(a.publishedAtRaw).getTime() : 0;
+          const bTime = b.publishedAtRaw ? new Date(b.publishedAtRaw).getTime() : 0;
+          return (aTime - bTime) * direction;
+        });
+      case "title-asc":
+      case "title-desc":
+        return items.sort((a, b) => a.title.localeCompare(b.title) * direction);
+      case "videoCount-asc":
+      case "videoCount-desc":
+        return items.sort((a, b) => {
+          const aCount = a.videoCountRaw ?? 0;
+          const bCount = b.videoCountRaw ?? 0;
+          return (aCount - bCount) * direction;
+        });
+      default:
+        return items;
+    }
+  })();
 
   return (
     <div className="panel">
@@ -696,8 +725,19 @@ function ChannelTab() {
               {channel.playlists?.length > 0 && (
                 <div style={{ marginTop: 16 }}>
                   <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Public playlists</h3>
+                  <div className="field" style={{ maxWidth: 260 }}>
+                    <label>Sort by</label>
+                    <select value={playlistSort} onChange={(e) => setPlaylistSort(e.target.value)}>
+                      <option value="date-desc">Published at (newest first)</option>
+                      <option value="date-asc">Published at (oldest first)</option>
+                      <option value="title-asc">Title (A → Z)</option>
+                      <option value="title-desc">Title (Z → A)</option>
+                      <option value="videoCount-desc">Video count (highest first)</option>
+                      <option value="videoCount-asc">Video count (lowest first)</option>
+                    </select>
+                  </div>
                   <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
-                    {channel.playlists.map((playlist) => (
+                    {sortedPlaylists.map((playlist) => (
                       <div key={playlist.playlistId} style={{ marginBottom: 10 }}>
                         <div><b>ID:</b> {playlist.playlistId}</div>
                         <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
@@ -791,8 +831,8 @@ function CommentTab() {
 
 function CommentsTab() {
   const [input, setInput] = useState("");
-  const [commentsData, setCommentsData] = useState(null);
-  const [loadedThreads, setLoadedThreads] = useState([]);
+  const [threads, setThreads] = useState([]);
+  const [commentCount, setCommentCount] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sort, setSort] = useState("top");
@@ -803,7 +843,7 @@ function CommentsTab() {
   const [expandedThreads, setExpandedThreads] = useState({});
   const [nextPageToken, setNextPageToken] = useState(null);
   const [hasMore, setHasMore] = useState(false);
-  const [totalThreads, setTotalThreads] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
   const [replyPages, setReplyPages] = useState({});
   const { isNearBottom } = useInfiniteScroll({ enabled: hasMore });
 
@@ -826,18 +866,12 @@ function CommentsTab() {
       const params = buildBaseParams();
       if (pageToken) params.pageToken = pageToken;
       const data = await apiGet("comments", params);
-      const pageCommentCount = (data.threads || []).reduce(
-        (total, thread) => total + 1 + thread.replies.length,
-        0
-      );
-      setLoadedThreads((prev) => [...prev, ...(data.threads || [])]);
-      setCommentsData((prev) => ({
-        commentCount: (prev?.commentCount || 0) + pageCommentCount,
-        threadCount: (prev?.threadCount || 0) + (data.threads?.length || 0),
-      }));
+      setThreads((prev) => [...prev, ...(data.threads || [])]);
+      // commentCount comes straight from the video's statistics on every page response
+      // (it's the same stable number each time, not an accumulation of loaded items).
+      setCommentCount(data.commentCount ?? null);
       setNextPageToken(data.nextPageToken || null);
       setHasMore(Boolean(data.hasMore));
-      setTotalThreads(data.totalThreads || null);
       setExpandedThreads((prev) => (pageToken ? prev : {}));
       setReplyPages((prev) => {
         const next = { ...prev };
@@ -863,11 +897,11 @@ function CommentsTab() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    setCommentsData(null);
-    setLoadedThreads([]);
+    setThreads([]);
+    setCommentCount(null);
     setNextPageToken(null);
     setHasMore(false);
-    setTotalThreads(null);
+    setHasSearched(true);
     setExpandedThreads({});
     setReplyPages({});
     await fetchCommentsPage();
@@ -939,6 +973,8 @@ function CommentsTab() {
             <option value="top">Top comments</option>
             <option value="latest">Latest first</option>
             <option value="earliest">Earliest first</option>
+            <option value="likes-desc">Likes (highest first)</option>
+            <option value="likes-asc">Likes (lowest first)</option>
           </select>
         </div>
         <div className="row" style={{ gap: 12, marginBottom: 14 }}>
@@ -952,7 +988,9 @@ function CommentsTab() {
             disabled={loading}
             onClick={() => {
               setInput("");
-              setCommentsData(null);
+              setThreads([]);
+              setCommentCount(null);
+              setHasSearched(false);
               setError("");
               setSort("top");
               setMode("keyword");
@@ -968,14 +1006,12 @@ function CommentsTab() {
         </div>
       </form>
       <ErrorBox message={error} />
-      {commentsData && (
+      {hasSearched && (
         <div style={{ marginTop: 16 }}>
           <p className="result-count">
-            Comment count: {commentsData.commentCount}
-            {totalThreads ? ` · Total threads: ${totalThreads}` : ""}
+            Comment count: {commentCount != null ? commentCount : "N/A"}
           </p>
-          <p className="result-count">Loaded threads: {commentsData.threadCount}</p>
-          {loadedThreads.map((thread) => (
+          {threads.map((thread) => (
             <div key={thread.commentId} className="comment-thread">
               <div className="comment-header">
                 {thread.authorProfileImageUrl && (
@@ -988,6 +1024,13 @@ function CommentsTab() {
                 <div>
                   <div className="comment-meta">
                     <span><b>{thread.authorName}</b></span>
+                    {thread.authorChannelUrl && (
+                      <span>
+                        <a href={thread.authorChannelUrl} target="_blank" rel="noreferrer">
+                          View channel
+                        </a>
+                      </span>
+                    )}
                     <span>({thread.authorChannelId})</span>
                   </div>
                   <div className="comment-meta-small">
@@ -1096,6 +1139,13 @@ function RepliesList({ thread, replyState, loadMoreReplies }) {
             <div>
               <div className="comment-meta">
                 <span><b>{reply.authorName}</b></span>
+                {reply.authorChannelUrl && (
+                  <span>
+                    <a href={reply.authorChannelUrl} target="_blank" rel="noreferrer">
+                      View channel
+                    </a>
+                  </span>
+                )}
                 <span>({reply.authorChannelId})</span>
               </div>
               <div className="comment-meta-small">
@@ -1119,6 +1169,7 @@ function RepliesList({ thread, replyState, loadMoreReplies }) {
 
 function PlaylistTab() {
   const [input, setInput] = useState("");
+  const [sortOption, setSortOption] = useState("date-asc");
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1129,7 +1180,7 @@ function PlaylistTab() {
     setData(null);
     setLoading(true);
     try {
-      const result = await apiGet("playlist", { q: input });
+      const result = await apiGet("playlist", { q: input, sort: sortOption });
       setData(result);
     } catch (err) {
       setError(err.message);
@@ -1149,6 +1200,19 @@ function PlaylistTab() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
           />
+        </div>
+        <div className="field">
+          <label>Sort by</label>
+          <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+            <option value="date-asc">Published at (oldest first)</option>
+            <option value="date-desc">Published at (newest first)</option>
+            <option value="title-asc">Title (A → Z)</option>
+            <option value="title-desc">Title (Z → A)</option>
+            <option value="viewCount-desc">View count (highest first)</option>
+            <option value="viewCount-asc">View count (lowest first)</option>
+            <option value="rating-desc">Rating (highest first)</option>
+            <option value="rating-asc">Rating (lowest first)</option>
+          </select>
         </div>
         <button className="primary" disabled={loading || !input.trim()}>
           {loading && <Spinner />}
