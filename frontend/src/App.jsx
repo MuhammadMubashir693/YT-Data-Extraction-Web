@@ -31,7 +31,7 @@ function parseVideoId(text) {
 const TABS = [
   { id: "video", label: "Video Details" },
   { id: "player", label: "Video Player" },
-  { id: "channelSearch", label: "Search Videos" },
+  { id: "channelSearch", label: "Search" },
   { id: "manageChannels", label: "Manage Channels" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
@@ -108,9 +108,63 @@ function VideoTab() {
   );
 }
 
-// ── Tab: Search Videos ──────────────────────────────────────────────
+// ── Tab: Search ─────────────────────────────────────────────────────────
+
+function ChannelResultCard({ ch }) {
+  return (
+    <div className="video-card">
+      {ch.thumbnail && (
+        <ImageWithFallback src={ch.thumbnail} alt={ch.title} loading="lazy" />
+      )}
+      <div className="body">
+        <p className="title">
+          <a href={ch.channelUrl} target="_blank" rel="noreferrer">{ch.title}</a>
+        </p>
+        <div className="meta-grid">
+          <span><b>Channel ID:</b> {ch.channelId}</span>
+          <span><b>Subscribers:</b> {ch.subscribers}</span>
+          <span><b>Videos:</b> {ch.videoCount}</span>
+          <span><b>Total views:</b> {ch.viewCount}</span>
+          <span><b>Country:</b> {ch.country}</span>
+          <span><b>Created:</b> {ch.publishedAt}</span>
+        </div>
+        {ch.description && (
+          <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+            {ch.description}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlaylistResultCard({ pl }) {
+  return (
+    <div className="video-card">
+      {pl.thumbnail && (
+        <ImageWithFallback src={pl.thumbnail} alt={pl.title} loading="lazy" />
+      )}
+      <div className="body">
+        <p className="title">
+          <a href={pl.playlistUrl} target="_blank" rel="noreferrer">{pl.title}</a>
+        </p>
+        <div className="meta-grid">
+          <span><b>Playlist ID:</b> {pl.playlistId}</span>
+          <span><b>Channel:</b> {pl.channelTitle}</span>
+          <span><b>Channel ID:</b> {pl.channelId}</span>
+          <span><b>Videos:</b> {pl.videoCount}</span>
+          <span><b>Created:</b> {pl.publishedAt}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ChannelSearchTab() {
+  // Category: 'video' | 'channel' | 'playlist'
+  const [category, setCategory] = useState("video");
+
+  // Video search state
   const [searchType, setSearchType] = useState("channel"); // 'channel' | 'general'
   const [channels, setChannels] = useState([]);
   const [channelId, setChannelId] = useState("");
@@ -126,7 +180,24 @@ function ChannelSearchTab() {
   const [useDateRange, setUseDateRange] = useState(false);
   const [useDuration, setUseDuration] = useState(false);
   const [durationFilter, setDurationFilter] = useState("medium");
+
+  // Channel search state
+  const [chKeyword, setChKeyword] = useState("");
+  const [chUsePerField, setChUsePerField] = useState(false);
+  const [chKeywordName, setChKeywordName] = useState("");
+  const [chKeywordDescription, setChKeywordDescription] = useState("");
+
+  // Playlist search state
+  const [plKeyword, setPlKeyword] = useState("");
+
+  // Shared max results
+  const [maxResults, setMaxResults] = useState("50");
+
+  // Results
   const [videos, setVideos] = useState(null);
+  const [channelResults, setChannelResults] = useState(null);
+  const [playlistResults, setPlaylistResults] = useState(null);
+
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -150,15 +221,48 @@ function ChannelSearchTab() {
     refreshChannels();
   }, []);
 
+  const clearResults = () => {
+    setVideos(null);
+    setChannelResults(null);
+    setPlaylistResults(null);
+    setError("");
+  };
+
   const submit = async (e) => {
     e.preventDefault();
-    setError("");
-    setVideos(null);
+    clearResults();
     setLoading(true);
     try {
-      if (searchType === "channel") {
-        const params = { channelId, mode };
-        if (mode === "keyword") {
+      if (category === "video") {
+        const isChannelSearch = searchType === "channel";
+        if (isChannelSearch) {
+          const params = { channelId, mode };
+          if (mode === "keyword") {
+            if (usePerFieldKeywords) {
+              if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
+              if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
+              if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
+            } else {
+              params.keyword = keyword;
+            }
+            if (useDateRange) {
+              params.startDate = startDate;
+              params.endDate = endDate;
+            }
+          } else {
+            params.startDate = startDate;
+            params.endDate = endDate;
+          }
+          if (useDuration) params.durationFilter = durationFilter;
+          if (sortOption) params.sort = sortOption;
+          params.maxResults = maxResults;
+          const data = await apiGet("channel-videos", params);
+          setVideos(data.videos);
+        } else {
+          const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
+          if (!usePerFieldKeywords && !keyword.trim()) throw new Error("Keyword is required for general video search");
+          if (usePerFieldKeywords && !hasPerField) throw new Error("At least one per-field keyword is required");
+          const params = { sort: sortOption, maxResults };
           if (usePerFieldKeywords) {
             if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
             if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
@@ -166,42 +270,29 @@ function ChannelSearchTab() {
           } else {
             params.keyword = keyword;
           }
-          if (useDateRange) {
-            params.startDate = startDate;
-            params.endDate = endDate;
-          }
-        } else {
-          params.startDate = startDate;
-          params.endDate = endDate;
+          if (startDate) params.startDate = startDate;
+          if (endDate) params.endDate = endDate;
+          if (useDuration) params.durationFilter = durationFilter;
+          const data = await apiGet("search-videos", params);
+          setVideos(data.videos);
         }
-        if (useDuration) params.durationFilter = durationFilter;
-        if (sortOption) params.sort = sortOption;
-
-        const data = await apiGet("channel-videos", params);
-        setVideos(data.videos);
+      } else if (category === "channel") {
+        const hasPerField = chUsePerField && (chKeywordName.trim() || chKeywordDescription.trim());
+        if (!chUsePerField && !chKeyword.trim()) throw new Error("Keyword is required for channel search");
+        if (chUsePerField && !hasPerField) throw new Error("At least one per-field keyword is required");
+        const params = { maxResults };
+        if (chUsePerField) {
+          if (chKeywordName.trim()) params.keywordName = chKeywordName.trim();
+          if (chKeywordDescription.trim()) params.keywordDescription = chKeywordDescription.trim();
+        } else {
+          params.keyword = chKeyword.trim();
+        }
+        const data = await apiGet("search-channels", params);
+        setChannelResults(data.channels);
       } else {
-        // General search
-        const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
-        if (!usePerFieldKeywords && !keyword.trim()) {
-          throw new Error("Keyword is required for general video search");
-        }
-        if (usePerFieldKeywords && !hasPerField) {
-          throw new Error("At least one per-field keyword is required");
-        }
-        const params = { sort: sortOption };
-        if (usePerFieldKeywords) {
-          if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
-          if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
-          if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
-        } else {
-          params.keyword = keyword;
-        }
-        if (startDate) params.startDate = startDate;
-        if (endDate) params.endDate = endDate;
-        if (useDuration) params.durationFilter = durationFilter;
-
-        const data = await apiGet("search-videos", params);
-        setVideos(data.videos);
+        if (!plKeyword.trim()) throw new Error("Keyword is required for playlist search");
+        const data = await apiGet("search-playlists", { keyword: plKeyword.trim(), maxResults });
+        setPlaylistResults(data.playlists);
       }
     } catch (err) {
       setError(err.message);
@@ -212,247 +303,264 @@ function ChannelSearchTab() {
 
   const isChannelSearch = searchType === "channel";
 
+  // Derive submit disabled state
+  const isDisabled = (() => {
+    if (loading) return true;
+    if (category === "video") {
+      if (isChannelSearch && !channelId) return true;
+      if (isChannelSearch && mode === "keyword") {
+        if (usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) return true;
+        if (!usePerFieldKeywords && !keyword.trim()) return true;
+      }
+      if (!isChannelSearch) {
+        if (usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) return true;
+        if (!usePerFieldKeywords && !keyword.trim()) return true;
+      }
+    } else if (category === "channel") {
+      if (chUsePerField && !chKeywordName.trim() && !chKeywordDescription.trim()) return true;
+      if (!chUsePerField && !chKeyword.trim()) return true;
+    } else {
+      if (!plKeyword.trim()) return true;
+    }
+    return false;
+  })();
+
   return (
     <div className="panel">
       <form onSubmit={submit}>
+
+        {/* ── Category selector ── */}
         <div className="field">
-          <label>Search Type</label>
-          <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
-            <option value="channel">Search within Channel</option>
-            <option value="general">Search Videos Generally</option>
+          <label>Search for</label>
+          <select value={category} onChange={(e) => { setCategory(e.target.value); clearResults(); }}>
+            <option value="video">Videos</option>
+            <option value="channel">Channels</option>
+            <option value="playlist">Playlists</option>
           </select>
         </div>
 
-        {isChannelSearch && (
-          <div className="field">
-            <label>Channel</label>
-            {channels.length ? (
-              <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
-                {channels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.id})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                placeholder="Channel ID (enter manually or add in Manage Channels tab)"
-                value={channelId}
-                onChange={(e) => setChannelId(e.target.value)}
-              />
-            )}
-          </div>
-        )}
-
-        {isChannelSearch && (
-          <div className="field">
-            <label>Search mode</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="keyword">Keyword</option>
-              <option value="date">Date range</option>
-            </select>
-          </div>
-        )}
-
-        {isChannelSearch && mode === "keyword" && (
+        {/* ══ VIDEO fields ══ */}
+        {category === "video" && (
           <>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={usePerFieldKeywords}
-                onChange={(e) => setUsePerFieldKeywords(e.target.checked)}
-              />
-              Specify separate keywords per field
-            </label>
-            {usePerFieldKeywords ? (
-              <>
-                <div className="field">
-                  <label>Title keyword</label>
+            <div className="field">
+              <label>Search type</label>
+              <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
+                <option value="channel">Search within Channel</option>
+                <option value="general">Search Videos Generally</option>
+              </select>
+            </div>
+
+            {isChannelSearch && (
+              <div className="field">
+                <label>Channel</label>
+                {channels.length ? (
+                  <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+                    {channels.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                    ))}
+                  </select>
+                ) : (
                   <input
                     type="text"
-                    placeholder="Leave empty to ignore"
-                    value={keywordTitle}
-                    onChange={(e) => setKeywordTitle(e.target.value)}
+                    placeholder="Channel ID (enter manually or add in Manage Channels tab)"
+                    value={channelId}
+                    onChange={(e) => setChannelId(e.target.value)}
                   />
+                )}
+              </div>
+            )}
+
+            {isChannelSearch && (
+              <div className="field">
+                <label>Search mode</label>
+                <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                  <option value="keyword">Keyword</option>
+                  <option value="date">Date range</option>
+                </select>
+              </div>
+            )}
+
+            {isChannelSearch && mode === "keyword" && (
+              <>
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={usePerFieldKeywords} onChange={(e) => setUsePerFieldKeywords(e.target.checked)} />
+                  Specify separate keywords per field
+                </label>
+                {usePerFieldKeywords ? (
+                  <>
+                    <div className="field">
+                      <label>Title keyword</label>
+                      <input type="text" placeholder="Leave empty to ignore" value={keywordTitle} onChange={(e) => setKeywordTitle(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Description keyword</label>
+                      <input type="text" placeholder="Leave empty to ignore" value={keywordDescription} onChange={(e) => setKeywordDescription(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Channel name keyword</label>
+                      <input type="text" placeholder="Leave empty to ignore" value={keywordChannel} onChange={(e) => setKeywordChannel(e.target.value)} />
+                    </div>
+                  </>
+                ) : (
+                  <div className="field">
+                    <label>Keyword</label>
+                    <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+                  </div>
+                )}
+                <div className="field">
+                  <label>Sort by</label>
+                  <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+                    <option value="relevance">Relevance</option>
+                    <option value="date-desc">Date (newest first)</option>
+                    <option value="date-asc">Date (oldest first)</option>
+                    <option value="viewCount-desc">View count (highest first)</option>
+                    <option value="viewCount-asc">View count (lowest first)</option>
+                    <option value="rating-desc">Rating (highest first)</option>
+                    <option value="rating-asc">Rating (lowest first)</option>
+                    <option value="title-asc">Title (A → Z)</option>
+                    <option value="title-desc">Title (Z → A)</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {!isChannelSearch && (
+              <>
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={usePerFieldKeywords} onChange={(e) => setUsePerFieldKeywords(e.target.checked)} />
+                  Specify separate keywords per field
+                </label>
+                {usePerFieldKeywords ? (
+                  <>
+                    <div className="field">
+                      <label>Title keyword</label>
+                      <input type="text" placeholder="Leave empty to ignore" value={keywordTitle} onChange={(e) => setKeywordTitle(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Description keyword</label>
+                      <input type="text" placeholder="Leave empty to ignore" value={keywordDescription} onChange={(e) => setKeywordDescription(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Channel name keyword</label>
+                      <input type="text" placeholder="Leave empty to ignore" value={keywordChannel} onChange={(e) => setKeywordChannel(e.target.value)} />
+                    </div>
+                  </>
+                ) : (
+                  <div className="field">
+                    <label>Keyword</label>
+                    <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+                  </div>
+                )}
+                <div className="field">
+                  <label>Sort by</label>
+                  <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+                    <option value="relevance">Relevance</option>
+                    <option value="date-desc">Date (newest first)</option>
+                    <option value="date-asc">Date (oldest first)</option>
+                    <option value="viewCount-desc">View count (highest first)</option>
+                    <option value="viewCount-asc">View count (lowest first)</option>
+                    <option value="rating-desc">Rating (highest first)</option>
+                    <option value="rating-asc">Rating (lowest first)</option>
+                    <option value="title-asc">Title (A → Z)</option>
+                    <option value="title-desc">Title (Z → A)</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {isChannelSearch && mode === "keyword" && (
+              <label className="checkbox-row">
+                <input type="checkbox" checked={useDateRange} onChange={(e) => setUseDateRange(e.target.checked)} />
+                Also filter by date range
+              </label>
+            )}
+
+            {isChannelSearch && mode === "date" && (
+              <div className="field">
+                <label>Sort by</label>
+                <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+                  <option value="date-desc">Date (newest first)</option>
+                  <option value="date-asc">Date (oldest first)</option>
+                </select>
+              </div>
+            )}
+
+            {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
+              <div className="row">
+                <div className="field">
+                  <label>Start date</label>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>End date</label>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            <label className="checkbox-row">
+              <input type="checkbox" checked={useDuration} onChange={(e) => setUseDuration(e.target.checked)} />
+              Filter by duration type
+            </label>
+            {useDuration && (
+              <div className="field">
+                <label>Duration</label>
+                <select value={durationFilter} onChange={(e) => setDurationFilter(e.target.value)}>
+                  <option value="short">Short (&lt; 4 min)</option>
+                  <option value="medium">Medium (4–20 min)</option>
+                  <option value="long">Long (&gt; 20 min)</option>
+                </select>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ══ CHANNEL fields ══ */}
+        {category === "channel" && (
+          <>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={chUsePerField} onChange={(e) => setChUsePerField(e.target.checked)} />
+              Specify separate keywords per field
+            </label>
+            {chUsePerField ? (
+              <>
+                <div className="field">
+                  <label>Channel name keyword</label>
+                  <input type="text" placeholder="Leave empty to ignore" value={chKeywordName} onChange={(e) => setChKeywordName(e.target.value)} />
                 </div>
                 <div className="field">
                   <label>Description keyword</label>
-                  <input
-                    type="text"
-                    placeholder="Leave empty to ignore"
-                    value={keywordDescription}
-                    onChange={(e) => setKeywordDescription(e.target.value)}
-                  />
-                </div>
-                <div className="field">
-                  <label>Channel name keyword</label>
-                  <input
-                    type="text"
-                    placeholder="Leave empty to ignore"
-                    value={keywordChannel}
-                    onChange={(e) => setKeywordChannel(e.target.value)}
-                  />
+                  <input type="text" placeholder="Leave empty to ignore" value={chKeywordDescription} onChange={(e) => setChKeywordDescription(e.target.value)} />
                 </div>
               </>
             ) : (
               <div className="field">
                 <label>Keyword</label>
-                <input
-                  type="text"
-                  placeholder="e.g. tutorial"
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                />
+                <input type="text" placeholder="Search channel name and description" value={chKeyword} onChange={(e) => setChKeyword(e.target.value)} />
               </div>
             )}
-            <div className="field">
-              <label>Sort by</label>
-              <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-                <option value="relevance">Relevance</option>
-                <option value="date-desc">Date (newest first)</option>
-                <option value="date-asc">Date (oldest first)</option>
-                <option value="viewCount-desc">View count (highest first)</option>
-                <option value="viewCount-asc">View count (lowest first)</option>
-                <option value="rating-desc">Rating (highest first)</option>
-                <option value="rating-asc">Rating (lowest first)</option>
-                <option value="title-asc">Title (A → Z)</option>
-                <option value="title-desc">Title (Z → A)</option>
-              </select>
-            </div>
           </>
         )}
 
-        {!isChannelSearch && (
-          <>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={usePerFieldKeywords}
-                onChange={(e) => setUsePerFieldKeywords(e.target.checked)}
-              />
-              Specify separate keywords per field
-            </label>
-            {usePerFieldKeywords ? (
-              <>
-                <div className="field">
-                  <label>Title keyword</label>
-                  <input
-                    type="text"
-                    placeholder="Leave empty to ignore"
-                    value={keywordTitle}
-                    onChange={(e) => setKeywordTitle(e.target.value)}
-                  />
-                </div>
-                <div className="field">
-                  <label>Description keyword</label>
-                  <input
-                    type="text"
-                    placeholder="Leave empty to ignore"
-                    value={keywordDescription}
-                    onChange={(e) => setKeywordDescription(e.target.value)}
-                  />
-                </div>
-                <div className="field">
-                  <label>Channel name keyword</label>
-                  <input
-                    type="text"
-                    placeholder="Leave empty to ignore"
-                    value={keywordChannel}
-                    onChange={(e) => setKeywordChannel(e.target.value)}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="field">
-                <label>Keyword</label>
-                <input
-                  type="text"
-                  placeholder="e.g. tutorial"
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                />
-              </div>
-            )}
-            <div className="field">
-              <label>Sort by</label>
-              <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-                <option value="relevance">Relevance</option>
-                <option value="date-desc">Date (newest first)</option>
-                <option value="date-asc">Date (oldest first)</option>
-                <option value="viewCount-desc">View count (highest first)</option>
-                <option value="viewCount-asc">View count (lowest first)</option>
-                <option value="rating-desc">Rating (highest first)</option>
-                <option value="rating-asc">Rating (lowest first)</option>
-                <option value="title-asc">Title (A → Z)</option>
-                <option value="title-desc">Title (Z → A)</option>
-              </select>
-            </div>
-          </>
-        )}
-
-        {isChannelSearch && mode === "keyword" && (
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={useDateRange}
-              onChange={(e) => setUseDateRange(e.target.checked)}
-            />
-            Also filter by date range
-          </label>
-        )}
-
-        {isChannelSearch && mode === "date" && (
+        {/* ══ PLAYLIST fields ══ */}
+        {category === "playlist" && (
           <div className="field">
-            <label>Sort by</label>
-            <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-              <option value="date-desc">Date (newest first)</option>
-              <option value="date-asc">Date (oldest first)</option>
-            </select>
+            <label>Title keyword</label>
+            <input type="text" placeholder="e.g. cooking basics" value={plKeyword} onChange={(e) => setPlKeyword(e.target.value)} />
           </div>
         )}
 
-        {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
-          <div className="row">
-            <div className="field">
-              <label>Start date</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </div>
-            <div className="field">
-              <label>End date</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            </div>
-          </div>
-        )}
+        {/* ── Max results (shared) ── */}
+        <div className="field">
+          <label>Max results</label>
+          <select value={maxResults} onChange={(e) => setMaxResults(e.target.value)}>
+            <option value="50">50</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+          </select>
+        </div>
 
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={useDuration}
-            onChange={(e) => setUseDuration(e.target.checked)}
-          />
-          Filter by duration type
-        </label>
-
-        {useDuration && (
-          <div className="field">
-            <label>Duration</label>
-            <select value={durationFilter} onChange={(e) => setDurationFilter(e.target.value)}>
-              <option value="short">Short (&lt; 4 min)</option>
-              <option value="medium">Medium (4-20 min)</option>
-              <option value="long">Long (&gt; 20 min)</option>
-            </select>
-          </div>
-        )}
-
-        <button className="primary" disabled={
-          loading ||
-          (isChannelSearch && !channelId) ||
-          (!isChannelSearch && !usePerFieldKeywords && !keyword.trim()) ||
-          (!isChannelSearch && usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) ||
-          (isChannelSearch && mode === "keyword" && usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) ||
-          (isChannelSearch && mode === "keyword" && !usePerFieldKeywords && !keyword.trim())
-        }>
+        <button className="primary" disabled={isDisabled}>
           {loading && <Spinner />}
           Search
         </button>
@@ -465,6 +573,24 @@ function ChannelSearchTab() {
           <p className="result-count">Result count: {videos.length}</p>
           {videos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
+          ))}
+        </>
+      )}
+
+      {channelResults && (
+        <>
+          <p className="result-count">Result count: {channelResults.length}</p>
+          {channelResults.map((ch) => (
+            <ChannelResultCard key={ch.channelId} ch={ch} />
+          ))}
+        </>
+      )}
+
+      {playlistResults && (
+        <>
+          <p className="result-count">Result count: {playlistResults.length}</p>
+          {playlistResults.map((pl) => (
+            <PlaylistResultCard key={pl.playlistId} pl={pl} />
           ))}
         </>
       )}

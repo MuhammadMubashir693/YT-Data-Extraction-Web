@@ -282,6 +282,8 @@ app.get("/api/channel-videos", async (req, res) => {
       return res.status(400).json({ error: "channelId is required" });
     }
 
+    const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
+
     // Determine if we're in per-field mode
     const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
       (k) => k && k.trim()
@@ -313,7 +315,10 @@ app.get("/api/channel-videos", async (req, res) => {
         if (vidId) videoIds.push(vidId);
       }
       nextPage = resp.nextPageToken;
+      if (videoIds.length >= limit) break;
     } while (nextPage);
+
+    videoIds = videoIds.slice(0, limit);
 
     if (!videoIds.length) {
       return res.json({ videos: [], count: 0 });
@@ -732,6 +737,8 @@ app.get("/api/search-videos", async (req, res) => {
       return res.status(400).json({ error: "keyword is required" });
     }
 
+    const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
+
     // Use the combined keyword or title keyword for the YouTube search API q= param
     const apiKeyword = keyword || keywordTitle || "";
 
@@ -757,7 +764,10 @@ app.get("/api/search-videos", async (req, res) => {
         if (vidId) videoIds.push(vidId);
       }
       nextPage = resp.nextPageToken;
+      if (videoIds.length >= limit) break;
     } while (nextPage);
+
+    videoIds = videoIds.slice(0, limit);
 
     if (!videoIds.length) {
       return res.json({ videos: [], count: 0 });
@@ -788,6 +798,183 @@ app.get("/api/search-videos", async (req, res) => {
 
     const videos = fullItems.map((v) => shapeVideo(v));
     res.json({ videos, count: videos.length });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Part 7 – Search channels ────────────────────────────────────────────────
+
+app.get("/api/search-channels", async (req, res) => {
+  try {
+    const { keyword, keywordName, keywordDescription, maxResults } = req.query;
+
+    const hasPerField = [keywordName, keywordDescription].some((k) => k && k.trim());
+
+    if (!keyword && !hasPerField) {
+      return res.status(400).json({ error: "At least one keyword is required." });
+    }
+
+    const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
+
+    // Use the broadest keyword for the YouTube search API q= param
+    const apiKeyword = keyword || keywordName || keywordDescription || "";
+
+    let channelIds = [];
+    let nextPage;
+    do {
+      const p = {
+        part: "snippet",
+        q: apiKeyword,
+        maxResults: 50,
+        type: "channel",
+      };
+      if (nextPage) p.pageToken = nextPage;
+      const resp = await ytFetch("search", p);
+      for (const item of resp.items || []) {
+        const cid = item.id?.channelId;
+        if (cid) channelIds.push(cid);
+      }
+      nextPage = resp.nextPageToken;
+      if (channelIds.length >= limit) break;
+    } while (nextPage);
+
+    channelIds = channelIds.slice(0, limit);
+
+    if (!channelIds.length) {
+      return res.json({ channels: [], count: 0 });
+    }
+
+    // Fetch full channel details in batches of 50
+    let fullItems = [];
+    for (let i = 0; i < channelIds.length; i += 50) {
+      const batch = channelIds.slice(i, i + 50);
+      const resp = await ytFetch("channels", {
+        part: "snippet,statistics",
+        id: batch.join(","),
+      });
+      fullItems.push(...(resp.items || []));
+    }
+
+    // Server-side keyword filtering
+    if (hasPerField) {
+      fullItems = fullItems.filter((ch) => {
+        const name = ch.snippet?.title || "";
+        const desc = ch.snippet?.description || "";
+        if (keywordName && keywordName.trim() && !keywordMatches([name], keywordName)) return false;
+        if (keywordDescription && keywordDescription.trim() && !keywordMatches([desc], keywordDescription)) return false;
+        return true;
+      });
+    } else if (keyword) {
+      fullItems = fullItems.filter((ch) =>
+        keywordMatches([ch.snippet?.title || "", ch.snippet?.description || ""], keyword)
+      );
+    }
+
+    const channels = fullItems.map((ch) => {
+      const sn = ch.snippet || {};
+      const st = ch.statistics || {};
+      const thumb = sn.thumbnails || {};
+      return {
+        channelId: ch.id,
+        channelUrl: `https://www.youtube.com/channel/${ch.id}`,
+        title: sn.title || "N/A",
+        description: (sn.description || "").trim(),
+        country: fmtCountry(sn.country),
+        publishedAt: sn.publishedAt ? fmtDatetime(sn.publishedAt) : "N/A",
+        subscribers: st.subscriberCount ?? "N/A",
+        videoCount: st.videoCount ?? "N/A",
+        viewCount: st.viewCount ?? "N/A",
+        thumbnail:
+          thumb.high?.url ||
+          thumb.medium?.url ||
+          thumb.default?.url ||
+          null,
+      };
+    });
+
+    res.json({ channels, count: channels.length });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Part 8 – Search playlists ───────────────────────────────────────────────
+
+app.get("/api/search-playlists", async (req, res) => {
+  try {
+    const { keyword, maxResults } = req.query;
+
+    if (!keyword || !keyword.trim()) {
+      return res.status(400).json({ error: "keyword is required." });
+    }
+
+    const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
+
+    let playlistIds = [];
+    let nextPage;
+    do {
+      const p = {
+        part: "snippet",
+        q: keyword,
+        maxResults: 50,
+        type: "playlist",
+      };
+      if (nextPage) p.pageToken = nextPage;
+      const resp = await ytFetch("search", p);
+      for (const item of resp.items || []) {
+        const pid = item.id?.playlistId;
+        if (pid) playlistIds.push(pid);
+      }
+      nextPage = resp.nextPageToken;
+      if (playlistIds.length >= limit) break;
+    } while (nextPage);
+
+    playlistIds = playlistIds.slice(0, limit);
+
+    if (!playlistIds.length) {
+      return res.json({ playlists: [], count: 0 });
+    }
+
+    // Fetch full playlist details in batches of 50
+    let fullItems = [];
+    for (let i = 0; i < playlistIds.length; i += 50) {
+      const batch = playlistIds.slice(i, i + 50);
+      const resp = await ytFetch("playlists", {
+        part: "snippet,contentDetails",
+        id: batch.join(","),
+      });
+      fullItems.push(...(resp.items || []));
+    }
+
+    // Server-side title keyword filtering
+    fullItems = fullItems.filter((pl) =>
+      keywordMatches([pl.snippet?.title || ""], keyword)
+    );
+
+    const playlists = fullItems.map((pl) => {
+      const sn = pl.snippet || {};
+      const cd = pl.contentDetails || {};
+      const thumb = sn.thumbnails || {};
+      const pid = pl.id;
+      return {
+        playlistId: pid,
+        playlistUrl: `https://www.youtube.com/playlist?list=${pid}`,
+        title: sn.title || "N/A",
+        channelId: sn.channelId || "N/A",
+        channelTitle: sn.channelTitle || "N/A",
+        publishedAt: sn.publishedAt ? fmtDatetime(sn.publishedAt) : "N/A",
+        videoCount: cd.itemCount ?? "N/A",
+        thumbnail:
+          thumb.standard?.url ||
+          thumb.high?.url ||
+          thumb.medium?.url ||
+          thumb.default?.url ||
+          null,
+      };
+    });
+
+    res.json({ playlists, count: playlists.length });
   } catch (err) {
     handleError(res, err);
   }
