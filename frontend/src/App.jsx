@@ -998,7 +998,7 @@ function ChannelTab() {
         });
       case "title-asc":
       case "title-desc":
-        return items.sort((a, b) => a.title.localeCompare(b.title) * direction);
+        return items.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }) * direction);
       case "videoCount-asc":
       case "videoCount-desc":
         return items.sort((a, b) => {

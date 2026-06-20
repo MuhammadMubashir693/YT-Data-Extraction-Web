@@ -155,7 +155,7 @@ function sortVideos(items, sort) {
     case "title-asc":
     case "title-desc":
       return items.sort((a, b) =>
-        a.snippet.title.localeCompare(b.snippet.title) * direction
+        a.snippet.title.localeCompare(b.snippet.title, undefined, { numeric: true, sensitivity: "base" }) * direction
       );
     default:
       return items;
