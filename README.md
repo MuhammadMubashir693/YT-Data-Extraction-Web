@@ -118,6 +118,14 @@ All ID/URL inputs accept multiple formats:
 - Playlists: bare playlist ID or any YouTube URL containing a `list=` parameter
 - Comments: bare comment ID or a YouTube URL containing `lc=` parameter
 
+**Exporting results**
+
+Every tab with results to show offers JSON, XML, CSV, and TXT export buttons that download the current result set as a file:
+
+- Single-item tabs (Video Details, Video Player, Channel Details, Comment Details, Playlist Details) export the one fetched record.
+- Search/list tabs (Search, Comments Section) export the full list of currently loaded results, including any comment replies that have been expanded/loaded so far.
+- **Manage Channels** shows export buttons only after the saved-channel list has successfully loaded from MongoDB and is non-empty; it stays hidden if MongoDB is unreachable or there are no saved channels yet.
+
 **Notes & caveats**
 
 - The YouTube Data API has daily quota limits; search and playlist operations consume quota more quickly than single-item lookups.

@@ -49,6 +49,178 @@ async function apiGet(path, params = {}) {
   return data;
 }
 
+// ── Export helpers (JSON / XML / CSV / TXT) ─────────────────────────────
+
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function asRecordArray(data) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") return [data];
+  return [];
+}
+
+function flattenValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function toCSV(data) {
+  const rows = asRecordArray(data);
+  if (!rows.length) return "";
+  const columns = Array.from(
+    rows.reduce((set, row) => {
+      Object.keys(row || {}).forEach((k) => set.add(k));
+      return set;
+    }, new Set())
+  );
+  const escapeCell = (val) => {
+    const str = flattenValue(val);
+    if (/[",\n]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+  const lines = [columns.map(escapeCell).join(",")];
+  rows.forEach((row) => {
+    lines.push(columns.map((col) => escapeCell(row?.[col])).join(","));
+  });
+  return lines.join("\n");
+}
+
+function escapeXML(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function xmlNode(name, value, indent) {
+  const pad = "  ".repeat(indent);
+  // XML element names can't start with a digit or contain spaces; sanitize.
+  const safeName = /^[A-Za-z_][\w.-]*$/.test(name) ? name : `field_${name}`.replace(/[^\w.-]/g, "_");
+  if (value === null || value === undefined) {
+    return `${pad}<${safeName} />`;
+  }
+  if (Array.isArray(value)) {
+    const inner = value
+      .map((item) => xmlNode("item", item, indent + 1))
+      .join("\n");
+    return `${pad}<${safeName}>\n${inner}\n${pad}</${safeName}>`;
+  }
+  if (typeof value === "object") {
+    const inner = Object.entries(value)
+      .map(([k, v]) => xmlNode(k, v, indent + 1))
+      .join("\n");
+    return `${pad}<${safeName}>\n${inner}\n${pad}</${safeName}>`;
+  }
+  return `${pad}<${safeName}>${escapeXML(value)}</${safeName}>`;
+}
+
+function toXML(data, rootName = "results") {
+  const rows = asRecordArray(data);
+  const inner = rows.map((row) => xmlNode("item", row, 1)).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<${rootName}>\n${inner}\n</${rootName}>`;
+}
+
+function flattenForText(value, indent = 0) {
+  const pad = "  ".repeat(indent);
+  const lines = [];
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => {
+      lines.push(`${pad}[${i}]`);
+      lines.push(...flattenForText(item, indent + 1));
+    });
+  } else if (value && typeof value === "object") {
+    Object.entries(value).forEach(([k, v]) => {
+      if (v && typeof v === "object") {
+        lines.push(`${pad}${k}:`);
+        lines.push(...flattenForText(v, indent + 1));
+      } else {
+        lines.push(`${pad}${k}: ${flattenValue(v)}`);
+      }
+    });
+  } else {
+    lines.push(`${pad}${flattenValue(value)}`);
+  }
+  return lines;
+}
+
+function toTXT(data) {
+  const rows = asRecordArray(data);
+  return rows
+    .map((row, i) => {
+      const lines = flattenForText(row, 0);
+      return `── Item ${i + 1} ──\n${lines.join("\n")}`;
+    })
+    .join("\n\n");
+}
+
+function exportData(data, format, filenameBase) {
+  const rows = asRecordArray(data);
+  if (!rows.length) return;
+  let content;
+  let mimeType;
+  let ext;
+  switch (format) {
+    case "json":
+      content = JSON.stringify(rows, null, 2);
+      mimeType = "application/json";
+      ext = "json";
+      break;
+    case "xml":
+      content = toXML(rows, "results");
+      mimeType = "application/xml";
+      ext = "xml";
+      break;
+    case "csv":
+      content = toCSV(rows);
+      mimeType = "text/csv";
+      ext = "csv";
+      break;
+    case "txt":
+      content = toTXT(rows);
+      mimeType = "text/plain";
+      ext = "txt";
+      break;
+    default:
+      return;
+  }
+  downloadFile(`${filenameBase}.${ext}`, content, mimeType);
+}
+
+function ExportBar({ data, filenameBase }) {
+  const rows = asRecordArray(data);
+  if (!rows.length) return null;
+  return (
+    <div className="row export-bar" style={{ gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, opacity: 0.65, alignSelf: "center" }}>Export results:</span>
+      {["json", "xml", "csv", "txt"].map((format) => (
+        <button
+          key={format}
+          type="button"
+          className="secondary"
+          onClick={() => exportData(rows, format, filenameBase)}
+        >
+          {format.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ErrorBox({ message, type = "error" }) {
   if (!message) return null;
   return <div className={`message-box ${type}`}>{message}</div>;
@@ -101,6 +273,7 @@ function VideoTab() {
       <ErrorBox message={error} />
       {video && (
         <div style={{ marginTop: 16 }}>
+          <ExportBar data={video} filenameBase="video-details" />
           <VideoCard v={video} />
         </div>
       )}
@@ -572,6 +745,7 @@ function ChannelSearchTab() {
       {videos && (
         <>
           <p className="result-count">Result count: {videos.length}</p>
+          <ExportBar data={videos} filenameBase="video-search-results" />
           {videos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
@@ -581,6 +755,7 @@ function ChannelSearchTab() {
       {channelResults && (
         <>
           <p className="result-count">Result count: {channelResults.length}</p>
+          <ExportBar data={channelResults} filenameBase="channel-search-results" />
           {channelResults.map((ch) => (
             <ChannelResultCard key={ch.channelId} ch={ch} />
           ))}
@@ -590,6 +765,7 @@ function ChannelSearchTab() {
       {playlistResults && (
         <>
           <p className="result-count">Result count: {playlistResults.length}</p>
+          <ExportBar data={playlistResults} filenameBase="playlist-search-results" />
           {playlistResults.map((pl) => (
             <PlaylistResultCard key={pl.playlistId} pl={pl} />
           ))}
@@ -601,6 +777,7 @@ function ChannelSearchTab() {
 
 function ChannelManagerTab() {
   const [channels, setChannels] = useState([]);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("");
   const [id, setId] = useState("");
@@ -612,13 +789,14 @@ function ChannelManagerTab() {
     try {
       const data = await apiGet("channels");
       setChannels(data);
+      setChannelsLoaded(true);
       if (data.length && !data.some((c) => c.id === selectedId)) {
         setSelectedId("");
         setName("");
         setId("");
       }
     } catch {
-      // ignore
+      setChannelsLoaded(false);
     }
   };
 
@@ -718,6 +896,9 @@ function ChannelManagerTab() {
   return (
     <div className="panel">
       <h2>Manage Channels</h2>
+      {channelsLoaded && channels.length > 0 && (
+        <ExportBar data={channels} filenameBase="saved-channels" />
+      )}
       <div className="field">
         <label>Saved channels</label>
         <select value={selectedId} onChange={(e) => selectChannel(e.target.value)}>
@@ -850,6 +1031,7 @@ function ChannelTab() {
       <ErrorBox message={error} />
       {channel && (
         <div style={{ marginTop: 16 }}>
+          <ExportBar data={channel} filenameBase="channel-details" />
           {channel.banner !== "N/A" && (
             <ImageWithFallback src={channel.banner} alt="banner" className="banner-img" />
           )}
@@ -954,6 +1136,7 @@ function CommentTab() {
       <ErrorBox message={error} />
       {comment && (
         <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
+          <ExportBar data={comment} filenameBase="comment-details" />
           <div className="meta-grid">
             <span><b>Comment ID:</b> {comment.commentId}</span>
             <span><b>Author:</b> {comment.authorName}</span>
@@ -1164,6 +1347,13 @@ function CommentsTab() {
           <p className="result-count">
             Comment count: {commentCount != null ? commentCount : "N/A"}
           </p>
+          <ExportBar
+            data={threads.map((thread) => ({
+              ...thread,
+              replies: (replyPages[thread.commentId]?.replies ?? thread.replies) || [],
+            }))}
+            filenameBase="comments"
+          />
           {threads.map((thread) => (
             <div key={thread.commentId} className="comment-thread">
               <div className="comment-header">
@@ -1375,6 +1565,10 @@ function PlaylistTab() {
       <ErrorBox message={error} />
       {data && (
         <>
+          <ExportBar
+            data={{ ...(data.playlistInfo || {}), videos: data.videos || [] }}
+            filenameBase="playlist-details"
+          />
           {data.playlistInfo && Object.keys(data.playlistInfo).length > 0 && (
             <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
               <h3>Playlist Details</h3>
@@ -1478,6 +1672,7 @@ function VideoPlayerTab() {
       )}
       {video && (
         <div style={{ marginTop: 16 }}>
+          <ExportBar data={video} filenameBase="video-details" />
           <VideoCard v={video} />
         </div>
       )}
