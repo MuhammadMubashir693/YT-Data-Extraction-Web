@@ -74,6 +74,44 @@ function sortVideosClient(videos, sort) {
   }
 }
 
+// ── Progressive list rendering (infinite scroll over an already-fetched
+// array) ─────────────────────────────────────────────────────────────────
+// Several endpoints (channel playlists, playlist videos) return the full
+// result set in one response. Rather than rendering hundreds of items at
+// once, this reveals them in pages as the user scrolls, matching the feel
+// of the paginated Comments section even though no extra network calls
+// happen after the first one.
+const PAGE_SIZE = 20;
+
+function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, loadingLabel = "Loading more...", active = true }) {
+  const [count, setCount] = useState(pageSize);
+  const hasMore = count < items.length;
+  // No containerRef attached — tracks window scroll, same as the top-level
+  // comment thread list (RepliesList instead tracks its own scrollable box).
+  // `active` is false while the parent tab is hidden (display:none), so a
+  // background tab's scroll listener doesn't fire off another tab's scrolling.
+  const { isNearBottom } = useInfiniteScroll({ enabled: hasMore && active, threshold: 0.85 });
+
+  useEffect(() => {
+    setCount(pageSize);
+  }, [resetKey, pageSize]);
+
+  useEffect(() => {
+    if (isNearBottom && hasMore) {
+      setCount((c) => Math.min(c + pageSize, items.length));
+    }
+  }, [isNearBottom, hasMore, pageSize, items.length]);
+
+  return (
+    <div>
+      {items.slice(0, count).map(renderItem)}
+      {hasMore && (
+        <div className="message-box secondary" style={{ marginTop: 10 }}>{loadingLabel}</div>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { id: "video", label: "Video Details" },
   { id: "player", label: "Video Player" },
@@ -311,10 +349,24 @@ function VideoTab() {
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
-        <button className="primary" disabled={loading || !input.trim()}>
-          {loading && <Spinner />}
-          Fetch Video
-        </button>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Fetch Video
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={loading}
+            onClick={() => {
+              setInput("");
+              setVideo(null);
+              setError("");
+            }}
+          >
+            Reset
+          </button>
+        </div>
       </form>
       <ErrorBox message={error} />
       {video && (
@@ -450,6 +502,29 @@ function ChannelSearchTab() {
     setChannelResults(null);
     setPlaylistResults(null);
     setError("");
+  };
+
+  const resetAll = () => {
+    clearResults();
+    setSearchType("channel");
+    setMode("keyword");
+    setKeyword("");
+    setUsePerFieldKeywords(false);
+    setKeywordTitle("");
+    setKeywordDescription("");
+    setKeywordChannel("");
+    setSortOption("relevance");
+    setStartDate("");
+    setEndDate("");
+    setUseDateRange(false);
+    setUseDuration(false);
+    setDurationFilter("medium");
+    setChKeyword("");
+    setPlKeyword("");
+    setPlUsePerField(false);
+    setPlKeywordTitle("");
+    setPlKeywordChannel("");
+    setMaxResults("50");
   };
 
   const submit = async (e) => {
@@ -785,10 +860,15 @@ function ChannelSearchTab() {
           </select>
         </div>
 
-        <button className="primary" disabled={isDisabled}>
-          {loading && <Spinner />}
-          Search
-        </button>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={isDisabled}>
+            {loading && <Spinner />}
+            Search
+          </button>
+          <button type="button" className="secondary" disabled={loading} onClick={resetAll}>
+            Reset
+          </button>
+        </div>
       </form>
 
       <ErrorBox message={error} />
@@ -1012,7 +1092,7 @@ function ChannelManagerTab() {
 
 // ── Tab: Channel Details ─────────────────────────────────────────────────
 
-function ChannelTab() {
+function ChannelTab({ active = true }) {
   const [input, setInput] = useState("");
   const [channel, setChannel] = useState(null);
   const [error, setError] = useState("");
@@ -1033,6 +1113,13 @@ function ChannelTab() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const reset = () => {
+    setInput("");
+    setChannel(null);
+    setError("");
+    setPlaylistSort("date-desc");
   };
 
   const sortedPlaylists = (() => {
@@ -1074,10 +1161,15 @@ function ChannelTab() {
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
-        <button className="primary" disabled={loading || !input.trim()}>
-          {loading && <Spinner />}
-          Fetch Channel
-        </button>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Fetch Channel
+          </button>
+          <button type="button" className="secondary" disabled={loading} onClick={reset}>
+            Reset
+          </button>
+        </div>
       </form>
       <ErrorBox message={error} />
       {channel && (
@@ -1122,17 +1214,26 @@ function ChannelTab() {
                       <option value="videoCount-asc">Video count (lowest first)</option>
                     </select>
                   </div>
+                  <p className="result-count" style={{ margin: "0 0 8px" }}>
+                    Playlist count: {sortedPlaylists.length}
+                  </p>
                   <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
-                    {sortedPlaylists.map((playlist) => (
-                      <div key={playlist.playlistId} style={{ marginBottom: 10 }}>
-                        <div><b>ID:</b> {playlist.playlistId}</div>
-                        <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
-                        <div><b>Title:</b> {playlist.title}</div>
-                        <div><b>Channel ID:</b> {playlist.channelId}</div>
-                        <div><b>Published at:</b> {playlist.publishedAt}</div>
-                        <div><b>Video count:</b> {playlist.videoCount}</div>
-                      </div>
-                    ))}
+                    <ProgressiveList
+                      items={sortedPlaylists}
+                      resetKey={`${channel.channelId}:${playlistSort}`}
+                      loadingLabel="Scroll for more playlists"
+                      active={active}
+                      renderItem={(playlist) => (
+                        <div key={playlist.playlistId} style={{ marginBottom: 10 }}>
+                          <div><b>ID:</b> {playlist.playlistId}</div>
+                          <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
+                          <div><b>Title:</b> {playlist.title}</div>
+                          <div><b>Channel ID:</b> {playlist.channelId}</div>
+                          <div><b>Published at:</b> {playlist.publishedAt}</div>
+                          <div><b>Video count:</b> {playlist.videoCount}</div>
+                        </div>
+                      )}
+                    />
                   </div>
                 </div>
               )}
@@ -1179,10 +1280,24 @@ function CommentTab() {
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
-        <button className="primary" disabled={loading || !input.trim()}>
-          {loading && <Spinner />}
-          Fetch Comment
-        </button>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Fetch Comment
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={loading}
+            onClick={() => {
+              setInput("");
+              setComment(null);
+              setError("");
+            }}
+          >
+            Reset
+          </button>
+        </div>
       </form>
       <ErrorBox message={error} />
       {comment && (
@@ -1216,7 +1331,7 @@ function CommentTab() {
 
 // ── Tab: Playlist Videos ─────────────────────────────────────────────────
 
-function CommentsTab() {
+function CommentsTab({ active = true }) {
   const [input, setInput] = useState("");
   const [threads, setThreads] = useState([]);
   const [commentCount, setCommentCount] = useState(null);
@@ -1232,7 +1347,10 @@ function CommentsTab() {
   const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [replyPages, setReplyPages] = useState({});
-  const { isNearBottom } = useInfiniteScroll({ enabled: hasMore });
+  // `active` is false while this tab is hidden (display:none) — without
+  // this gate, scrolling on a different tab could trigger comment-page
+  // fetches in the background and silently burn API quota.
+  const { isNearBottom } = useInfiniteScroll({ enabled: hasMore && active });
 
   const buildBaseParams = () => {
     const params = { q: input, sort };
@@ -1388,7 +1506,7 @@ function CommentsTab() {
               setReplyPages({});
             }}
           >
-            Reset Filters
+            Reset
           </button>
         </div>
       </form>
@@ -1450,6 +1568,7 @@ function CommentsTab() {
               {expandedThreads[thread.commentId] && (
                 <RepliesList
                   thread={thread}
+                  active={active}
                   replyState={replyPages[thread.commentId] || {
                     replies: thread.replies || [],
                     hasMore: thread.replyCount > (thread.replies?.length || 0),
@@ -1509,8 +1628,8 @@ function CommentsTab() {
   );
 }
 
-function RepliesList({ thread, replyState, loadMoreReplies }) {
-  const { containerRef, isNearBottom } = useInfiniteScroll({ enabled: replyState.hasMore && !replyState.loading, threshold: 0.9 });
+function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
+  const { containerRef, isNearBottom } = useInfiniteScroll({ enabled: replyState.hasMore && !replyState.loading && active, threshold: 0.9 });
 
   useEffect(() => {
     if (isNearBottom && replyState.hasMore && !replyState.loading) {
@@ -1561,7 +1680,7 @@ function RepliesList({ thread, replyState, loadMoreReplies }) {
   );
 }
 
-function PlaylistTab() {
+function PlaylistTab({ active = true }) {
   const [input, setInput] = useState("");
   const [sortOption, setSortOption] = useState("date-asc");
   const [data, setData] = useState(null);
@@ -1585,6 +1704,13 @@ function PlaylistTab() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const reset = () => {
+    setInput("");
+    setSortOption("date-asc");
+    setData(null);
+    setError("");
   };
 
   return (
@@ -1612,10 +1738,15 @@ function PlaylistTab() {
             <option value="rating-asc">Rating (lowest first)</option>
           </select>
         </div>
-        <button className="primary" disabled={loading || !input.trim()}>
-          {loading && <Spinner />}
-          Fetch Playlist
-        </button>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Fetch Playlist
+          </button>
+          <button type="button" className="secondary" disabled={loading} onClick={reset}>
+            Reset
+          </button>
+        </div>
       </form>
       <ErrorBox message={error} />
       {data && (
@@ -1636,9 +1767,13 @@ function PlaylistTab() {
             </div>
           )}
           <p className="result-count" style={{ marginTop: 16 }}>Video count: {sortedVideos.length}</p>
-          {sortedVideos.map(({ description: _desc, ...v }) => (
-            <VideoCard key={v.videoId} v={v} />
-          ))}
+          <ProgressiveList
+            items={sortedVideos}
+            resetKey={`${data.playlistInfo?.playlistId || ""}:${sortOption}`}
+            renderItem={({ description: _desc, ...v }) => <VideoCard key={v.videoId} v={v} />}
+            loadingLabel="Scroll for more videos"
+            active={active}
+          />
         </>
       )}
     </div>
@@ -1688,10 +1823,25 @@ function VideoPlayerTab() {
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
-        <button className="primary" disabled={loading || !input.trim()}>
-          {loading && <Spinner />}
-          Load Video
-        </button>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Load Video
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={loading}
+            onClick={() => {
+              setInput("");
+              setVideoId(null);
+              setVideo(null);
+              setError("");
+            }}
+          >
+            Reset
+          </button>
+        </div>
       </form>
       <ErrorBox message={error} />
       {videoId && (
@@ -1723,6 +1873,15 @@ function VideoPlayerTab() {
               }}
             />
           </div>
+          {video?.channelThumbnail && (
+            <div style={{ marginTop: 10 }}>
+              <ImageWithFallback
+                src={video.channelThumbnail}
+                alt={video.channelTitle}
+                className="comment-avatar"
+              />
+            </div>
+          )}
         </div>
       )}
       {video && (
@@ -1774,14 +1933,19 @@ export default function App() {
         ))}
       </div>
 
-      {tab === "video" && <VideoTab />}
-      {tab === "player" && <VideoPlayerTab />}
-      {tab === "channelSearch" && <ChannelSearchTab />}
-      {tab === "manageChannels" && <ChannelManagerTab />}
-      {tab === "channel" && <ChannelTab />}
-      {tab === "comment" && <CommentTab />}
-      {tab === "comments" && <CommentsTab />}
-      {tab === "playlist" && <PlaylistTab />}
+      {/* All tabs stay mounted and are hidden with CSS rather than being
+          conditionally rendered, so switching tabs and coming back no
+          longer loses fetched results, scroll position, or filter inputs.
+          Tabs with scroll-triggered fetches receive `active` so they don't
+          keep listening (and fetching) while hidden in the background. */}
+      <div style={{ display: tab === "video" ? "block" : "none" }}><VideoTab /></div>
+      <div style={{ display: tab === "player" ? "block" : "none" }}><VideoPlayerTab /></div>
+      <div style={{ display: tab === "channelSearch" ? "block" : "none" }}><ChannelSearchTab /></div>
+      <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>
+      <div style={{ display: tab === "channel" ? "block" : "none" }}><ChannelTab active={tab === "channel"} /></div>
+      <div style={{ display: tab === "comment" ? "block" : "none" }}><CommentTab /></div>
+      <div style={{ display: tab === "comments" ? "block" : "none" }}><CommentsTab active={tab === "comments"} /></div>
+      <div style={{ display: tab === "playlist" ? "block" : "none" }}><PlaylistTab active={tab === "playlist"} /></div>
     </div>
   );
 }

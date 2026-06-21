@@ -256,7 +256,25 @@ app.get("/api/video", async (req, res) => {
       return res.status(404).json({ error: "No video found with that ID." });
     }
     const item = data.items[0];
-    res.json(shapeVideo(item, vid));
+    const shaped = shapeVideo(item, vid);
+
+    // Single-item lookup only — fetch the uploading channel's avatar so the
+    // Video Player tab can show a small channel profile picture. Not done
+    // for list endpoints (search/playlist/channel-videos) to avoid an extra
+    // API call per item.
+    try {
+      const channelId = item.snippet?.channelId;
+      if (channelId) {
+        const chData = await ytFetch("channels", { part: "snippet", id: channelId });
+        const chThumb = chData.items?.[0]?.snippet?.thumbnails;
+        shaped.channelThumbnail =
+          chThumb?.high?.url || chThumb?.medium?.url || chThumb?.default?.url || null;
+      }
+    } catch {
+      shaped.channelThumbnail = null;
+    }
+
+    res.json(shaped);
   } catch (err) {
     handleError(res, err);
   }
