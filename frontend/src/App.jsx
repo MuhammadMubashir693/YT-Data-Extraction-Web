@@ -28,6 +28,52 @@ function parseVideoId(text) {
   return null;
 }
 
+// ── Client-side video sorting (mirrors backend sortVideos in server.js) ──
+// Used so changing the "Sort by" dropdown re-orders already-fetched results
+// instantly, without firing a new network request.
+
+function safeNum(val) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function sortVideosClient(videos, sort) {
+  if (!videos?.length) return videos || [];
+  const items = [...videos];
+  const direction = sort.endsWith("-asc") ? 1 : -1;
+  switch (sort) {
+    case "date-asc":
+    case "date-desc":
+      return items.sort((a, b) => {
+        const aTime = a.publishedAtRaw ? new Date(a.publishedAtRaw).getTime() : 0;
+        const bTime = b.publishedAtRaw ? new Date(b.publishedAtRaw).getTime() : 0;
+        return (aTime - bTime) * direction;
+      });
+    case "viewCount-asc":
+    case "viewCount-desc":
+      return items.sort((a, b) => (safeNum(a.views) - safeNum(b.views)) * direction);
+    case "rating-asc":
+    case "rating-desc":
+      return items.sort((a, b) => {
+        const aLikes = safeNum(a.likes);
+        const bLikes = safeNum(b.likes);
+        const aViews = safeNum(a.views);
+        const bViews = safeNum(b.views);
+        const aScore = aViews ? aLikes / aViews : aLikes;
+        const bScore = bViews ? bLikes / bViews : bLikes;
+        return (aScore - bScore) * direction;
+      });
+    case "title-asc":
+    case "title-desc":
+      return items.sort((a, b) =>
+        a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }) * direction
+      );
+    default:
+      // "relevance" (or anything unrecognized) — keep API-provided order
+      return items;
+  }
+}
+
 const TABS = [
   { id: "video", label: "Video Details" },
   { id: "player", label: "Video Player" },
@@ -373,6 +419,11 @@ function ChannelSearchTab() {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Videos are fetched once with full data (date, views, likes, title all
+  // present in every record), so changing the "Sort by" dropdown re-orders
+  // the already-fetched results client-side instead of firing a new request.
+  const sortedVideos = videos ? sortVideosClient(videos, sortOption) : null;
 
   const refreshChannels = async () => {
     try {
@@ -745,8 +796,8 @@ function ChannelSearchTab() {
       {videos && (
         <>
           <p className="result-count">Result count: {videos.length}</p>
-          <ExportBar data={videos} filenameBase="video-search-results" />
-          {videos.map(({ description: _desc, ...v }) => (
+          <ExportBar data={sortedVideos} filenameBase="video-search-results" />
+          {sortedVideos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
         </>
@@ -1031,7 +1082,7 @@ function ChannelTab() {
       <ErrorBox message={error} />
       {channel && (
         <div style={{ marginTop: 16 }}>
-          <ExportBar data={channel} filenameBase="channel-details" />
+          <ExportBar data={{ ...channel, playlists: sortedPlaylists }} filenameBase="channel-details" />
           {channel.banner !== "N/A" && (
             <ImageWithFallback src={channel.banner} alt="banner" className="banner-img" />
           )}
@@ -1517,6 +1568,10 @@ function PlaylistTab() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // The playlist endpoint returns every video with full details up front,
+  // so re-sorting on dropdown change is done client-side without refetching.
+  const sortedVideos = data?.videos ? sortVideosClient(data.videos, sortOption) : [];
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
@@ -1566,7 +1621,7 @@ function PlaylistTab() {
       {data && (
         <>
           <ExportBar
-            data={{ ...(data.playlistInfo || {}), videos: data.videos || [] }}
+            data={{ ...(data.playlistInfo || {}), videos: sortedVideos }}
             filenameBase="playlist-details"
           />
           {data.playlistInfo && Object.keys(data.playlistInfo).length > 0 && (
@@ -1580,8 +1635,8 @@ function PlaylistTab() {
               </div>
             </div>
           )}
-          <p className="result-count" style={{ marginTop: 16 }}>Video count: {data.videos.length}</p>
-          {data.videos.map(({ description: _desc, ...v }) => (
+          <p className="result-count" style={{ marginTop: 16 }}>Video count: {sortedVideos.length}</p>
+          {sortedVideos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
         </>
