@@ -1,0 +1,9 @@
+{
+  "name": "yt-data-extraction-web",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npm run backend & npm run frontend",
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm run dev"
+  }
+}

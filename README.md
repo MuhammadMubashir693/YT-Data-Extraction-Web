@@ -20,6 +20,33 @@ YT-Data-Extraction-Web/
 
 **Quick start**
 
+Option A - Start at once
+
+Create package.json
+
+```bash
+touch package.json
+```
+
+Add this to it
+```bash
+{
+  "name": "yt-data-extraction-web",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npm run backend & npm run frontend",
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm run dev"
+  }
+}
+```
+Run it
+```
+npm install
+npm start
+```
+Option B - Start individually
+
 1) Backend
 
 ```bash
@@ -55,7 +82,13 @@ MONGO_COLL=yt-channels
 Start the backend:
 
 ```bash
-npm start   # or: npm run dev
+npm start
+```
+
+or
+
+```bash
+npm run dev
 ```
 
 The server listens on http://localhost:5000 by default.
