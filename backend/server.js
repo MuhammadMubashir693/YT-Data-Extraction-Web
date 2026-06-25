@@ -118,8 +118,22 @@ function isQuotaError(err) {
   return err?.response?.status === 403 && msg.includes("quota");
 }
 
+function isCommentsDisabledError(err) {
+  const errors = err?.response?.data?.error?.errors;
+  if (Array.isArray(errors)) {
+    return errors.some((e) => e.reason === "commentsDisabled");
+  }
+  const msg = (err?.response?.data?.error?.message || "").toLowerCase();
+  return err?.response?.status === 403 && msg.includes("disabled comments");
+}
+
 function handleError(res, err) {
   const apiMsg = err?.response?.data?.error?.message;
+  if (isCommentsDisabledError(err)) {
+    return res.status(403).json({
+      error: "Comments are disabled for this video.",
+    });
+  }
   if (isQuotaError(err)) {
     return res.status(403).json({
       error: apiMsg || "YouTube API quota exceeded. Try again tomorrow.",
