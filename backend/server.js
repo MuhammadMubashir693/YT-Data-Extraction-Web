@@ -700,6 +700,7 @@ app.get("/api/playlist", async (req, res) => {
         playlistId: playlist.id,
         title: playlist.snippet?.title || "N/A",
         channelId: playlist.snippet?.channelId || "N/A",
+        channelTitle: playlist.snippet?.channelTitle || "N/A",
         publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
       };
     }

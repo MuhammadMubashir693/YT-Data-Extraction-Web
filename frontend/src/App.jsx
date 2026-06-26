@@ -1762,6 +1762,7 @@ function PlaylistTab({ active = true }) {
                 <span><b>Playlist ID:</b> {data.playlistInfo.playlistId}</span>
                 <span><b>Title:</b> {data.playlistInfo.title}</span>
                 <span><b>Channel ID:</b> {data.playlistInfo.channelId}</span>
+                <span><b>Channel Name:</b> {data.playlistInfo.channelTitle}</span>
                 <span><b>Published At:</b> {data.playlistInfo.publishedAt}</span>
               </div>
             </div>
