@@ -771,7 +771,7 @@ function ChannelSearchTab() {
             {isChannelSearch && mode === "keyword" && (
               <label className="checkbox-row">
                 <input type="checkbox" checked={useDateRange} onChange={(e) => setUseDateRange(e.target.checked)} />
-                Also filter by date range
+                Filter by date range
               </label>
             )}
 
