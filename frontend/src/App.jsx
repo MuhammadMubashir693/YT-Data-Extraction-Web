@@ -437,6 +437,8 @@ function ChannelSearchTab() {
 
   // Video search state
   const [searchType, setSearchType] = useState("channel"); // 'channel' | 'general'
+  const [useCustomChannel, setUseCustomChannel] = useState(false);
+  const [customChannelId, setCustomChannelId] = useState("");
   const [channels, setChannels] = useState([]);
   const [channelId, setChannelId] = useState("");
   const [mode, setMode] = useState("keyword");
@@ -507,6 +509,8 @@ function ChannelSearchTab() {
   const resetAll = () => {
     clearResults();
     setSearchType("channel");
+    setUseCustomChannel(false);
+    setCustomChannelId("");
     setMode("keyword");
     setKeyword("");
     setUsePerFieldKeywords(false);
@@ -535,7 +539,8 @@ function ChannelSearchTab() {
       if (category === "video") {
         const isChannelSearch = searchType === "channel";
         if (isChannelSearch) {
-          const params = { channelId, mode };
+          const resolvedChannelId = useCustomChannel ? customChannelId.trim() : channelId;
+          const params = { channelId: resolvedChannelId, mode };
           if (mode === "keyword") {
             if (usePerFieldKeywords) {
               if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
@@ -607,7 +612,8 @@ function ChannelSearchTab() {
   const isDisabled = (() => {
     if (loading) return true;
     if (category === "video") {
-      if (isChannelSearch && !channelId) return true;
+      if (isChannelSearch && !useCustomChannel && !channelId) return true;
+      if (isChannelSearch && useCustomChannel && !customChannelId.trim()) return true;
       if (isChannelSearch && mode === "keyword") {
         if (usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) return true;
         if (!usePerFieldKeywords && !keyword.trim()) return true;
@@ -653,19 +659,34 @@ function ChannelSearchTab() {
             {isChannelSearch && (
               <div className="field">
                 <label>Channel</label>
-                {channels.length ? (
+                <label className="checkbox-row" style={{ marginBottom: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={useCustomChannel}
+                    onChange={(e) => {
+                      setUseCustomChannel(e.target.checked);
+                      setCustomChannelId("");
+                    }}
+                  />
+                  Specify a custom channel ID
+                </label>
+                {useCustomChannel ? (
+                  <input
+                    type="text"
+                    placeholder="Enter channel ID manually (e.g. UCxxxxxxxxxxxxxxxxxxxxxx)"
+                    value={customChannelId}
+                    onChange={(e) => setCustomChannelId(e.target.value)}
+                  />
+                ) : channels.length ? (
                   <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
                     {channels.map((c) => (
                       <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
                     ))}
                   </select>
                 ) : (
-                  <input
-                    type="text"
-                    placeholder="Channel ID (enter manually or add in Manage Channels tab)"
-                    value={channelId}
-                    onChange={(e) => setChannelId(e.target.value)}
-                  />
+                  <p style={{ margin: 0, opacity: 0.6, fontSize: 13 }}>
+                    No saved channels. Add some in the <b>Manage Channels</b> tab, or check the box above to enter an ID manually.
+                  </p>
                 )}
               </div>
             )}
@@ -1905,7 +1926,7 @@ export default function App() {
     fetch("/api/health")
       .then((r) => r.json())
       .then((d) => setApiKeySet(!!d.apiKeySet))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   return (
