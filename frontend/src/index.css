@@ -97,6 +97,7 @@ header.app-header .dot {
 
 input[type="text"],
 input[type="date"],
+input[type="number"],
 select {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -109,8 +110,21 @@ select {
 
 input[type="text"]:focus,
 input[type="date"]:focus,
+input[type="number"]:focus,
 select:focus {
   border-color: var(--accent-2);
+}
+
+/* Remove default browser spinner arrows from number inputs */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .row {

@@ -610,6 +610,8 @@ function ChannelSearchTab() {
 
   // Derive submit disabled state
   const isDisabled = (() => {
+    const maxNum = Number(maxResults);
+    if (!maxResults || maxNum < 50 || maxNum > 500) return true;
     if (loading) return true;
     if (category === "video") {
       if (isChannelSearch && !useCustomChannel && !channelId) return true;
@@ -630,6 +632,16 @@ function ChannelSearchTab() {
     }
     return false;
   })();
+
+  const autoSwapDates = (newStart, newEnd, setStart, setEnd) => {
+    if (newStart && newEnd && newEnd < newStart) {
+      setStart(newEnd);
+      setEnd(newStart);
+    } else {
+      setStart(newStart);
+      setEnd(newEnd);
+    }
+  };
 
   return (
     <div className="panel">
@@ -806,18 +818,24 @@ function ChannelSearchTab() {
               </div>
             )}
 
-            {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
-              <div className="row">
-                <div className="field">
-                  <label>Start date</label>
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                </div>
-                <div className="field">
-                  <label>End date</label>
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                </div>
+            <div className="row">
+              <div className="field">
+                <label>Start date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)}
+                />
               </div>
-            )}
+              <div className="field">
+                <label>End date</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)}
+                />
+              </div>
+            </div>
 
             <label className="checkbox-row">
               <input type="checkbox" checked={useDuration} onChange={(e) => setUseDuration(e.target.checked)} />
@@ -874,11 +892,36 @@ function ChannelSearchTab() {
         {/* ── Max results (shared) ── */}
         <div className="field">
           <label>Max results</label>
-          <select value={maxResults} onChange={(e) => setMaxResults(e.target.value)}>
+          <select
+            value={["50", "250", "500"].includes(maxResults) ? maxResults : "custom"}
+            onChange={(e) => {
+              if (e.target.value !== "custom") setMaxResults(e.target.value);
+              else setMaxResults("");
+            }}
+          >
             <option value="50">50</option>
             <option value="250">250</option>
             <option value="500">500</option>
+            <option value="custom">Custom...</option>
           </select>
+          {!["50", "250", "500"].includes(maxResults) && (
+            <div style={{ marginTop: 6 }}>
+              <input
+                type="number"
+                min={50}
+                max={500}
+                placeholder="Enter a value between 50 and 500"
+                value={maxResults}
+                onChange={(e) => setMaxResults(e.target.value)}
+                style={{ width: "100%" }}
+              />
+              {maxResults !== "" && (Number(maxResults) < 50 || Number(maxResults) > 500) && (
+                <div className="message-box error" style={{ marginTop: 6 }}>
+                  Max results must be between 50 and 500 inclusive.
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="row" style={{ gap: 12, marginBottom: 14 }}>
