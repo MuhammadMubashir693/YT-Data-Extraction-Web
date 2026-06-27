@@ -1,5 +1,6 @@
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
+import { fmtCount } from "../../backend/helpers.js";
 
 export default function VideoCard({ v }) {
   return (
@@ -17,9 +18,9 @@ export default function VideoCard({ v }) {
           <span><b>Channel ID:</b> {v.channelId}</span>
           <span><b>Uploaded:</b> {v.uploadDate}</span>
           <span><b>Duration:</b> {v.duration}</span>
-          <span><b>Views:</b> {v.views}</span>
-          <span><b>Likes:</b> {v.likes}</span>
-          <span><b>Comments:</b> {v.comments}</span>
+          <span><b>Views:</b> {fmtCount(v.views)}</span>
+          <span><b>Likes:</b> {fmtCount(v.likes)}</span>
+          <span><b>Comments:</b> {fmtCount(v.comments)}</span>
         </div>
         {v.description && <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>{v.description}</div>}
       </div>

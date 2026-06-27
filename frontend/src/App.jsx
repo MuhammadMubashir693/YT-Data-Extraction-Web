@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
+import { fmtCount } from "../../backend/helpers.js";
 
 // ── Client-side video ID parser (mirrors helpers.js) ─────────────────────
 
@@ -29,8 +30,6 @@ function parseVideoId(text) {
 }
 
 // ── Client-side video sorting (mirrors backend sortVideos in server.js) ──
-// Used so changing the "Sort by" dropdown re-orders already-fetched results
-// instantly, without firing a new network request.
 
 function safeNum(val) {
   const n = Number(val);
@@ -69,27 +68,15 @@ function sortVideosClient(videos, sort) {
         a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }) * direction
       );
     default:
-      // "relevance" (or anything unrecognized) — keep API-provided order
       return items;
   }
 }
 
-// ── Progressive list rendering (infinite scroll over an already-fetched
-// array) ─────────────────────────────────────────────────────────────────
-// Several endpoints (channel playlists, playlist videos) return the full
-// result set in one response. Rather than rendering hundreds of items at
-// once, this reveals them in pages as the user scrolls, matching the feel
-// of the paginated Comments section even though no extra network calls
-// happen after the first one.
 const PAGE_SIZE = 20;
 
 function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, loadingLabel = "Loading more...", active = true }) {
   const [count, setCount] = useState(pageSize);
   const hasMore = count < items.length;
-  // No containerRef attached — tracks window scroll, same as the top-level
-  // comment thread list (RepliesList instead tracks its own scrollable box).
-  // `active` is false while the parent tab is hidden (display:none), so a
-  // background tab's scroll listener doesn't fire off another tab's scrolling.
   const { isNearBottom } = useInfiniteScroll({ enabled: hasMore && active, threshold: 0.85 });
 
   useEffect(() => {
@@ -193,7 +180,6 @@ function escapeXML(str) {
 
 function xmlNode(name, value, indent) {
   const pad = "  ".repeat(indent);
-  // XML element names can't start with a digit or contain spaces; sanitize.
   const safeName = /^[A-Za-z_][\w.-]*$/.test(name) ? name : `field_${name}`.replace(/[^\w.-]/g, "_");
   if (value === null || value === undefined) {
     return `${pad}<${safeName} />`;
@@ -393,9 +379,9 @@ function ChannelResultCard({ ch }) {
         </p>
         <div className="meta-grid">
           <span><b>Channel ID:</b> {ch.channelId}</span>
-          <span><b>Subscribers:</b> {ch.subscribers}</span>
-          <span><b>Videos:</b> {ch.videoCount}</span>
-          <span><b>Total views:</b> {ch.viewCount}</span>
+          <span><b>Subscribers:</b> {fmtCount(ch.subscribers)}</span>
+          <span><b>Videos:</b> {fmtCount(ch.videoCount)}</span>
+          <span><b>Total views:</b> {fmtCount(ch.viewCount)}</span>
           <span><b>Country:</b> {ch.country}</span>
           <span><b>Created:</b> {ch.publishedAt}</span>
         </div>
@@ -423,7 +409,7 @@ function PlaylistResultCard({ pl }) {
           <span><b>Playlist ID:</b> {pl.playlistId}</span>
           <span><b>Channel:</b> {pl.channelTitle}</span>
           <span><b>Channel ID:</b> {pl.channelId}</span>
-          <span><b>Videos:</b> {pl.videoCount}</span>
+          <span><b>Videos:</b> {fmtCount(pl.videoCount)}</span>
           <span><b>Created:</b> {pl.publishedAt}</span>
         </div>
       </div>
@@ -437,10 +423,10 @@ function ChannelSearchTab() {
 
   // Video search state
   const [searchType, setSearchType] = useState("channel"); // 'channel' | 'general'
-  const [useCustomChannel, setUseCustomChannel] = useState(false);
-  const [customChannelId, setCustomChannelId] = useState("");
   const [channels, setChannels] = useState([]);
   const [channelId, setChannelId] = useState("");
+  const [useCustomChannel, setUseCustomChannel] = useState(false);
+  const [customChannelId, setCustomChannelId] = useState("");
   const [mode, setMode] = useState("keyword");
   const [keyword, setKeyword] = useState("");
   const [usePerFieldKeywords, setUsePerFieldKeywords] = useState(false);
@@ -475,10 +461,18 @@ function ChannelSearchTab() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Videos are fetched once with full data (date, views, likes, title all
-  // present in every record), so changing the "Sort by" dropdown re-orders
-  // the already-fetched results client-side instead of firing a new request.
   const sortedVideos = videos ? sortVideosClient(videos, sortOption) : null;
+
+  // ── Date auto-swap helper ──────────────────────────────────────────────
+  const autoSwapDates = (newStart, newEnd, setStart, setEnd) => {
+    if (newStart && newEnd && newEnd < newStart) {
+      setStart(newEnd);
+      setEnd(newStart);
+    } else {
+      setStart(newStart);
+      setEnd(newEnd);
+    }
+  };
 
   const refreshChannels = async () => {
     try {
@@ -542,7 +536,7 @@ function ChannelSearchTab() {
         const isChannelSearch = searchType === "channel";
         if (isChannelSearch) {
           const resolvedChannelId = useCustomChannel ? customChannelId.trim() : channelId;
-          const params = { channelId: resolvedChannelId, mode };
+          const params = { channelId: resolvedChannelId, mode, matchMode };
           if (mode === "keyword") {
             if (usePerFieldKeywords) {
               if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
@@ -555,7 +549,6 @@ function ChannelSearchTab() {
               params.startDate = startDate;
               params.endDate = endDate;
             }
-            params.matchMode = matchMode;
           } else {
             params.startDate = startDate;
             params.endDate = endDate;
@@ -569,7 +562,7 @@ function ChannelSearchTab() {
           const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
           if (!usePerFieldKeywords && !keyword.trim()) throw new Error("Keyword is required for general video search");
           if (usePerFieldKeywords && !hasPerField) throw new Error("At least one per-field keyword is required");
-          const params = { sort: sortOption, maxResults };
+          const params = { sort: sortOption, maxResults, matchMode };
           if (usePerFieldKeywords) {
             if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
             if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
@@ -577,7 +570,6 @@ function ChannelSearchTab() {
           } else {
             params.keyword = keyword;
           }
-          params.matchMode = matchMode;
           if (startDate) params.startDate = startDate;
           if (endDate) params.endDate = endDate;
           if (useDuration) params.durationFilter = durationFilter;
@@ -612,11 +604,13 @@ function ChannelSearchTab() {
 
   const isChannelSearch = searchType === "channel";
 
-  // Derive submit disabled state
+  // Validate max results
+  const maxNum = Number(maxResults);
+  const maxResultsInvalid = !maxResults || maxNum < 50 || maxNum > 500;
+
   const isDisabled = (() => {
-    const maxNum = Number(maxResults);
-    if (!maxResults || maxNum < 50 || maxNum > 500) return true;
     if (loading) return true;
+    if (maxResultsInvalid) return true;
     if (category === "video") {
       if (isChannelSearch && !useCustomChannel && !channelId) return true;
       if (isChannelSearch && useCustomChannel && !customChannelId.trim()) return true;
@@ -637,15 +631,59 @@ function ChannelSearchTab() {
     return false;
   })();
 
-  const autoSwapDates = (newStart, newEnd, setStart, setEnd) => {
-    if (newStart && newEnd && newEnd < newStart) {
-      setStart(newEnd);
-      setEnd(newStart);
-    } else {
-      setStart(newStart);
-      setEnd(newEnd);
-    }
-  };
+  // ── Keyword fields shared between channel-search and general-search ───
+  // Rendered identically in both branches, extracted here to avoid duplication.
+  const keywordFields = (
+    <>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={usePerFieldKeywords} onChange={(e) => setUsePerFieldKeywords(e.target.checked)} />
+        Specify separate keywords per field
+      </label>
+      {usePerFieldKeywords ? (
+        <>
+          <div className="field">
+            <label>Title keyword</label>
+            <input type="text" placeholder="Leave empty to ignore" value={keywordTitle} onChange={(e) => setKeywordTitle(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Description keyword</label>
+            <input type="text" placeholder="Leave empty to ignore" value={keywordDescription} onChange={(e) => setKeywordDescription(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Channel name keyword</label>
+            <input type="text" placeholder="Leave empty to ignore" value={keywordChannel} onChange={(e) => setKeywordChannel(e.target.value)} />
+          </div>
+        </>
+      ) : (
+        <div className="field">
+          <label>Keyword</label>
+          <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+        </div>
+      )}
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={matchMode === "some"}
+          onChange={(e) => setMatchMode(e.target.checked ? "some" : "every")}
+        />
+        Match any word (instead of all words)
+      </label>
+      <div className="field">
+        <label>Sort by</label>
+        <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+          <option value="relevance">Relevance</option>
+          <option value="date-desc">Date (newest first)</option>
+          <option value="date-asc">Date (oldest first)</option>
+          <option value="viewCount-desc">View count (highest first)</option>
+          <option value="viewCount-asc">View count (lowest first)</option>
+          <option value="rating-desc">Rating (highest first)</option>
+          <option value="rating-asc">Rating (lowest first)</option>
+          <option value="title-asc">Title (A → Z)</option>
+          <option value="title-desc">Title (Z → A)</option>
+        </select>
+      </div>
+    </>
+  );
 
   return (
     <div className="panel">
@@ -672,6 +710,7 @@ function ChannelSearchTab() {
               </select>
             </div>
 
+            {/* ── Channel selector ── */}
             {isChannelSearch && (
               <div className="field">
                 <label>Channel</label>
@@ -717,117 +756,21 @@ function ChannelSearchTab() {
               </div>
             )}
 
+            {/* ── Keyword fields (channel search, keyword mode) ── */}
             {isChannelSearch && mode === "keyword" && (
               <>
+                {keywordFields}
                 <label className="checkbox-row">
-                  <input type="checkbox" checked={usePerFieldKeywords} onChange={(e) => setUsePerFieldKeywords(e.target.checked)} />
-                  Specify separate keywords per field
+                  <input type="checkbox" checked={useDateRange} onChange={(e) => setUseDateRange(e.target.checked)} />
+                  Filter by date range
                 </label>
-                {usePerFieldKeywords ? (
-                  <>
-                    <div className="field">
-                      <label>Title keyword</label>
-                      <input type="text" placeholder="Leave empty to ignore" value={keywordTitle} onChange={(e) => setKeywordTitle(e.target.value)} />
-                    </div>
-                    <div className="field">
-                      <label>Description keyword</label>
-                      <input type="text" placeholder="Leave empty to ignore" value={keywordDescription} onChange={(e) => setKeywordDescription(e.target.value)} />
-                    </div>
-                    <div className="field">
-                      <label>Channel name keyword</label>
-                      <input type="text" placeholder="Leave empty to ignore" value={keywordChannel} onChange={(e) => setKeywordChannel(e.target.value)} />
-                    </div>
-                  </>
-                ) : (
-                  <div className="field">
-                    <label>Keyword</label>
-                    <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
-                  </div>
-                )}
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={matchMode === "some"}
-                    onChange={(e) => setMatchMode(e.target.checked ? "some" : "every")}
-                  />
-                  Match any word (instead of all words)
-                </label>
-                <div className="field">
-                  <label>Sort by</label>
-                  <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-                    <option value="relevance">Relevance</option>
-                    <option value="date-desc">Date (newest first)</option>
-                    <option value="date-asc">Date (oldest first)</option>
-                    <option value="viewCount-desc">View count (highest first)</option>
-                    <option value="viewCount-asc">View count (lowest first)</option>
-                    <option value="rating-desc">Rating (highest first)</option>
-                    <option value="rating-asc">Rating (lowest first)</option>
-                    <option value="title-asc">Title (A → Z)</option>
-                    <option value="title-desc">Title (Z → A)</option>
-                  </select>
-                </div>
               </>
             )}
 
-            {!isChannelSearch && (
-              <>
-                <label className="checkbox-row">
-                  <input type="checkbox" checked={usePerFieldKeywords} onChange={(e) => setUsePerFieldKeywords(e.target.checked)} />
-                  Specify separate keywords per field
-                </label>
-                {usePerFieldKeywords ? (
-                  <>
-                    <div className="field">
-                      <label>Title keyword</label>
-                      <input type="text" placeholder="Leave empty to ignore" value={keywordTitle} onChange={(e) => setKeywordTitle(e.target.value)} />
-                    </div>
-                    <div className="field">
-                      <label>Description keyword</label>
-                      <input type="text" placeholder="Leave empty to ignore" value={keywordDescription} onChange={(e) => setKeywordDescription(e.target.value)} />
-                    </div>
-                    <div className="field">
-                      <label>Channel name keyword</label>
-                      <input type="text" placeholder="Leave empty to ignore" value={keywordChannel} onChange={(e) => setKeywordChannel(e.target.value)} />
-                    </div>
-                  </>
-                ) : (
-                  <div className="field">
-                    <label>Keyword</label>
-                    <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
-                  </div>
-                )}
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={matchMode === "some"}
-                    onChange={(e) => setMatchMode(e.target.checked ? "some" : "every")}
-                  />
-                  Match any word (instead of all words)
-                </label>
-                <div className="field">
-                  <label>Sort by</label>
-                  <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-                    <option value="relevance">Relevance</option>
-                    <option value="date-desc">Date (newest first)</option>
-                    <option value="date-asc">Date (oldest first)</option>
-                    <option value="viewCount-desc">View count (highest first)</option>
-                    <option value="viewCount-asc">View count (lowest first)</option>
-                    <option value="rating-desc">Rating (highest first)</option>
-                    <option value="rating-asc">Rating (lowest first)</option>
-                    <option value="title-asc">Title (A → Z)</option>
-                    <option value="title-desc">Title (Z → A)</option>
-                  </select>
-                </div>
-              </>
-            )}
+            {/* ── Keyword fields (general search) ── */}
+            {!isChannelSearch && keywordFields}
 
-            {isChannelSearch && mode === "keyword" && (
-              <label className="checkbox-row">
-                <input type="checkbox" checked={useDateRange} onChange={(e) => setUseDateRange(e.target.checked)} />
-                Filter by date range
-              </label>
-            )}
-
+            {/* ── Date by mode (channel search, date mode) ── */}
             {isChannelSearch && mode === "date" && (
               <div className="field">
                 <label>Sort by</label>
@@ -838,24 +781,27 @@ function ChannelSearchTab() {
               </div>
             )}
 
-            <div className="row">
-              <div className="field">
-                <label>Start date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)}
-                />
+            {/* ── Date range inputs ── */}
+            {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
+              <div className="row">
+                <div className="field">
+                  <label>Start date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)}
+                  />
+                </div>
+                <div className="field">
+                  <label>End date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)}
+                  />
+                </div>
               </div>
-              <div className="field">
-                <label>End date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)}
-                />
-              </div>
-            </div>
+            )}
 
             <label className="checkbox-row">
               <input type="checkbox" checked={useDuration} onChange={(e) => setUseDuration(e.target.checked)} />
@@ -959,7 +905,7 @@ function ChannelSearchTab() {
 
       {videos && (
         <>
-          <p className="result-count">Result count: {videos.length}</p>
+          <p className="result-count">Result count: {fmtCount(videos.length)}</p>
           <ExportBar data={sortedVideos} filenameBase="video-search-results" />
           {sortedVideos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
@@ -969,7 +915,7 @@ function ChannelSearchTab() {
 
       {channelResults && (
         <>
-          <p className="result-count">Result count: {channelResults.length}</p>
+          <p className="result-count">Result count: {fmtCount(channelResults.length)}</p>
           <ExportBar data={channelResults} filenameBase="channel-search-results" />
           {channelResults.map((ch) => (
             <ChannelResultCard key={ch.channelId} ch={ch} />
@@ -979,7 +925,7 @@ function ChannelSearchTab() {
 
       {playlistResults && (
         <>
-          <p className="result-count">Result count: {playlistResults.length}</p>
+          <p className="result-count">Result count: {fmtCount(playlistResults.length)}</p>
           <ExportBar data={playlistResults} filenameBase="playlist-search-results" />
           {playlistResults.map((pl) => (
             <PlaylistResultCard key={pl.playlistId} pl={pl} />
@@ -1275,9 +1221,9 @@ function ChannelTab({ active = true }) {
                 <span><b>Custom URL:</b> {channel.customUrl}</span>
                 <span><b>Created:</b> {channel.createdAt}</span>
                 <span><b>Country:</b> {channel.country}</span>
-                <span><b>Subscribers:</b> {channel.subscriberCount}</span>
-                <span><b>Total Views:</b> {channel.viewCount}</span>
-                <span><b>Video Count:</b> {channel.videoCount}</span>
+                <span><b>Subscribers:</b> {fmtCount(channel.subscriberCount)}</span>
+                <span><b>Total Views:</b> {fmtCount(channel.viewCount)}</span>
+                <span><b>Video Count:</b> {fmtCount(channel.videoCount)}</span>
               </div>
               {channel.description && (
                 <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
@@ -1299,7 +1245,7 @@ function ChannelTab({ active = true }) {
                     </select>
                   </div>
                   <p className="result-count" style={{ margin: "0 0 8px" }}>
-                    Playlist count: {sortedPlaylists.length}
+                    Playlist count: {fmtCount(sortedPlaylists.length)}
                   </p>
                   <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
                     <ProgressiveList
@@ -1314,7 +1260,7 @@ function ChannelTab({ active = true }) {
                           <div><b>Title:</b> {playlist.title}</div>
                           <div><b>Channel ID:</b> {playlist.channelId}</div>
                           <div><b>Published at:</b> {playlist.publishedAt}</div>
-                          <div><b>Video count:</b> {playlist.videoCount}</div>
+                          <div><b>Video count:</b> {fmtCount(playlist.videoCount)}</div>
                         </div>
                       )}
                     />
@@ -1391,7 +1337,7 @@ function CommentTab() {
             <span><b>Comment ID:</b> {comment.commentId}</span>
             <span><b>Author:</b> {comment.authorName}</span>
             <span><b>Author Channel ID:</b> {comment.authorChannelId}</span>
-            <span><b>Likes:</b> {comment.likeCount}</span>
+            <span><b>Likes:</b> {fmtCount(comment.likeCount)}</span>
             <span><b>Published:</b> {comment.publishedAt}</span>
             <span><b>Updated:</b> {comment.updatedAt}</span>
           </div>
@@ -1413,7 +1359,7 @@ function CommentTab() {
   );
 }
 
-// ── Tab: Playlist Videos ─────────────────────────────────────────────────
+// ── Tab: Comments Section ────────────────────────────────────────────────
 
 function CommentsTab({ active = true }) {
   const [input, setInput] = useState("");
@@ -1431,9 +1377,6 @@ function CommentsTab({ active = true }) {
   const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [replyPages, setReplyPages] = useState({});
-  // `active` is false while this tab is hidden (display:none) — without
-  // this gate, scrolling on a different tab could trigger comment-page
-  // fetches in the background and silently burn API quota.
   const { isNearBottom } = useInfiniteScroll({ enabled: hasMore && active });
 
   const buildBaseParams = () => {
@@ -1456,8 +1399,6 @@ function CommentsTab({ active = true }) {
       if (pageToken) params.pageToken = pageToken;
       const data = await apiGet("comments", params);
       setThreads((prev) => [...prev, ...(data.threads || [])]);
-      // commentCount comes straight from the video's statistics on every page response
-      // (it's the same stable number each time, not an accumulation of loaded items).
       setCommentCount(data.commentCount ?? null);
       setNextPageToken(data.nextPageToken || null);
       setHasMore(Boolean(data.hasMore));
@@ -1598,7 +1539,7 @@ function CommentsTab({ active = true }) {
       {hasSearched && (
         <div style={{ marginTop: 16 }}>
           <p className="result-count">
-            Comment count: {commentCount != null ? commentCount : "N/A"}
+            Comment count: {commentCount != null ? fmtCount(commentCount) : "N/A"}
           </p>
           <ExportBar
             data={threads.map((thread) => ({
@@ -1631,7 +1572,7 @@ function CommentsTab({ active = true }) {
                   </div>
                   <div className="comment-meta-small">
                     <span>ID: {thread.commentId}</span>
-                    <span>Likes: {thread.likeCount}</span>
+                    <span>Likes: {fmtCount(thread.likeCount)}</span>
                     <span>Published: {thread.publishedAt}</span>
                     <span>Updated: {thread.updatedAt}</span>
                     <span>Replies: {thread.replyCount}</span>
@@ -1669,10 +1610,7 @@ function CommentsTab({ active = true }) {
                     if (!pageState.hasMore || pageState.loading) return;
                     setReplyPages((prev) => ({
                       ...prev,
-                      [thread.commentId]: {
-                        ...pageState,
-                        loading: true,
-                      },
+                      [thread.commentId]: { ...pageState, loading: true },
                     }));
                     try {
                       const params = { parentId: thread.commentId };
@@ -1692,13 +1630,10 @@ function CommentsTab({ active = true }) {
                           },
                         };
                       });
-                    } catch (err) {
+                    } catch {
                       setReplyPages((prev) => ({
                         ...prev,
-                        [thread.commentId]: {
-                          ...pageState,
-                          loading: false,
-                        },
+                        [thread.commentId]: { ...pageState, loading: false },
                       }));
                     }
                   }}
@@ -1747,7 +1682,7 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
               </div>
               <div className="comment-meta-small">
                 <span>ID: {reply.commentId}</span>
-                <span>Likes: {reply.likeCount}</span>
+                <span>Likes: {fmtCount(reply.likeCount)}</span>
                 <span>Published: {reply.publishedAt}</span>
                 <span>Updated: {reply.updatedAt}</span>
               </div>
@@ -1764,6 +1699,8 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
   );
 }
 
+// ── Tab: Playlist Videos ─────────────────────────────────────────────────
+
 function PlaylistTab({ active = true }) {
   const [input, setInput] = useState("");
   const [sortOption, setSortOption] = useState("date-asc");
@@ -1771,8 +1708,6 @@ function PlaylistTab({ active = true }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // The playlist endpoint returns every video with full details up front,
-  // so re-sorting on dropdown change is done client-side without refetching.
   const sortedVideos = data?.videos ? sortVideosClient(data.videos, sortOption) : [];
 
   const submit = async (e) => {
@@ -1851,7 +1786,7 @@ function PlaylistTab({ active = true }) {
               </div>
             </div>
           )}
-          <p className="result-count" style={{ marginTop: 16 }}>Video count: {sortedVideos.length}</p>
+          <p className="result-count" style={{ marginTop: 16 }}>Video count: {fmtCount(sortedVideos.length)}</p>
           <ProgressiveList
             items={sortedVideos}
             resetKey={`${data.playlistInfo?.playlistId || ""}:${sortOption}`}
@@ -1989,7 +1924,7 @@ export default function App() {
     fetch("/api/health")
       .then((r) => r.json())
       .then((d) => setApiKeySet(!!d.apiKeySet))
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   return (
@@ -2018,11 +1953,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* All tabs stay mounted and are hidden with CSS rather than being
-          conditionally rendered, so switching tabs and coming back no
-          longer loses fetched results, scroll position, or filter inputs.
-          Tabs with scroll-triggered fetches receive `active` so they don't
-          keep listening (and fetching) while hidden in the background. */}
       <div style={{ display: tab === "video" ? "block" : "none" }}><VideoTab /></div>
       <div style={{ display: tab === "player" ? "block" : "none" }}><VideoPlayerTab /></div>
       <div style={{ display: tab === "channelSearch" ? "block" : "none" }}><ChannelSearchTab /></div>

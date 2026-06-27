@@ -165,9 +165,40 @@ export function fmtCountry(code) {
   return name || "Country not available";
 }
 
+// ── Number formatting ───────────────────────────────────────────────────
+
+/**
+ * Formats a count for display.
+ * Values below 1000 are returned as-is (e.g. "N/A", "42").
+ * Values >= 1000 get:
+ *   - comma-separated full form  e.g. 1,000  10,000  1,234,567
+ *   - short suffix form in brackets  e.g. (1K)  (10K)  (1.2M)  (2.8B)
+ *
+ * Non-numeric strings such as "N/A" are returned unchanged.
+ */
+export function fmtCount(value) {
+  if (value === null || value === undefined) return "N/A";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+
+  const full = n.toLocaleString("en-US");
+  if (n < 1000) return full;
+
+  let short;
+  if (n >= 1_000_000_000) {
+    short = (n / 1_000_000_000).toFixed(n >= 100_000_000_000 ? 0 : 1).replace(/\.0$/, "") + "B";
+  } else if (n >= 1_000_000) {
+    short = (n / 1_000_000).toFixed(n >= 100_000_000 ? 0 : 1).replace(/\.0$/, "") + "M";
+  } else {
+    short = (n / 1_000).toFixed(n >= 100_000 ? 0 : 1).replace(/\.0$/, "") + "K";
+  }
+
+  return `${full} (${short})`;
+}
+
 // ── Keyword matching ────────────────────────────────────────────────────
 
-export function keywordMatches(fields, keyword, matchMode = "every") {
+export function keywordMatches(fields, keyword) {
   if (!keyword) return false;
   const hay = Array.isArray(fields) ? fields.join(" ") : String(fields || "");
   const hayLower = hay.toLowerCase();
@@ -175,8 +206,7 @@ export function keywordMatches(fields, keyword, matchMode = "every") {
   const tokens = String(keyword || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return false;
 
-  const method = matchMode === "some" ? "some" : "every";
-  return tokens[method]((tok) => {
+  return tokens.every((tok) => {
     const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
     return pattern.test(hayLower);
@@ -191,16 +221,16 @@ export function keywordMatches(fields, keyword, matchMode = "every") {
  * All provided (non-empty) keywords must match their respective field.
  * Returns true if at least one keyword is provided and all provided ones match.
  */
-export function keywordMatchesPerField(snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode = "every") {
+export function keywordMatchesPerField(snippet, { keywordTitle, keywordDescription, keywordChannel }) {
   const checks = [
     { keyword: keywordTitle, field: snippet.title },
     { keyword: keywordDescription, field: snippet.description },
     { keyword: keywordChannel, field: snippet.channelTitle },
   ].filter(({ keyword }) => keyword && keyword.trim());
 
-  if (!checks.length) return true;
+  if (!checks.length) return true; // nothing to filter on
 
-  return checks.every(({ keyword, field }) => keywordMatches([field], keyword, matchMode));
+  return checks.every(({ keyword, field }) => keywordMatches([field], keyword));
 }
 
 // ── Video shaping ───────────────────────────────────────────────────────
