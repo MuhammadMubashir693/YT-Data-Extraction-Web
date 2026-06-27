@@ -307,7 +307,8 @@ app.get("/api/channel-videos", async (req, res) => {
       keywordChannel,
       startDate,
       endDate,
-      durationFilter, // 'short' | 'medium' | 'long'
+      durationFilter, // 'short' | 'medium' | 'long',
+      matchMode, // 'every' | 'some'
     } = req.query;
 
     if (!channelId) {
@@ -369,11 +370,11 @@ app.get("/api/channel-videos", async (req, res) => {
     if (mode === "keyword") {
       if (hasPerField) {
         fullItems = fullItems.filter((v) =>
-          keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel })
+          keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
         );
       } else if (keyword) {
         fullItems = fullItems.filter((v) =>
-          keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
+          keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
         );
       }
     }
@@ -758,6 +759,7 @@ app.get("/api/search-videos", async (req, res) => {
       startDate,
       endDate,
       durationFilter, // 'short' | 'medium' | 'long'
+      matchMode,
     } = req.query;
 
     // Determine mode
@@ -818,11 +820,11 @@ app.get("/api/search-videos", async (req, res) => {
 
     if (hasPerField) {
       fullItems = fullItems.filter((v) =>
-        keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel })
+        keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
       );
     } else if (keyword) {
       fullItems = fullItems.filter((v) =>
-        keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword)
+        keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
       );
     }
 

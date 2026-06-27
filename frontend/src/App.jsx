@@ -447,6 +447,7 @@ function ChannelSearchTab() {
   const [keywordTitle, setKeywordTitle] = useState("");
   const [keywordDescription, setKeywordDescription] = useState("");
   const [keywordChannel, setKeywordChannel] = useState("");
+  const [matchMode, setMatchMode] = useState("every");
   const [sortOption, setSortOption] = useState("relevance");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -517,6 +518,7 @@ function ChannelSearchTab() {
     setKeywordTitle("");
     setKeywordDescription("");
     setKeywordChannel("");
+    setMatchMode("every");
     setSortOption("relevance");
     setStartDate("");
     setEndDate("");
@@ -553,6 +555,7 @@ function ChannelSearchTab() {
               params.startDate = startDate;
               params.endDate = endDate;
             }
+            params.matchMode = matchMode;
           } else {
             params.startDate = startDate;
             params.endDate = endDate;
@@ -574,6 +577,7 @@ function ChannelSearchTab() {
           } else {
             params.keyword = keyword;
           }
+          params.matchMode = matchMode;
           if (startDate) params.startDate = startDate;
           if (endDate) params.endDate = endDate;
           if (useDuration) params.durationFilter = durationFilter;
@@ -740,6 +744,14 @@ function ChannelSearchTab() {
                     <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
                   </div>
                 )}
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={matchMode === "some"}
+                    onChange={(e) => setMatchMode(e.target.checked ? "some" : "every")}
+                  />
+                  Match any word (instead of all words)
+                </label>
                 <div className="field">
                   <label>Sort by</label>
                   <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
@@ -784,6 +796,14 @@ function ChannelSearchTab() {
                     <input type="text" placeholder="e.g. tutorial" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
                   </div>
                 )}
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={matchMode === "some"}
+                    onChange={(e) => setMatchMode(e.target.checked ? "some" : "every")}
+                  />
+                  Match any word (instead of all words)
+                </label>
                 <div className="field">
                   <label>Sort by</label>
                   <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
