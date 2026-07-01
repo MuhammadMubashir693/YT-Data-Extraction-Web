@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
-import { fmtCount } from "../../backend/helpers.js";
+import { fmtCount } from "./../../backend/helpers.js";
 
 // ── Client-side video ID parser (mirrors helpers.js) ─────────────────────
 
@@ -1928,39 +1928,46 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <span className="dot" />
-        <h1>YouTube Data Extraction Tool</h1>
-      </header>
-
-      {!apiKeySet && (
-        <div className="api-warning">
-          No YouTube API key detected. Add <code>YT_API_KEY=your_key</code> to{" "}
-          <code>backend/.env</code> and restart the server.
+    <div className="app-shell">
+      {/* ── Sidebar ── */}
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <span className="dot" />
+          <h1>YT Data Tool</h1>
         </div>
-      )}
+        <nav className="sidebar-nav">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`tab ${tab === t.id ? "active" : ""}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      <div className="tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* ── Main content ── */}
+      <main className="app-main">
+        <div className="app">
+          {!apiKeySet && (
+            <div className="api-warning">
+              No YouTube API key detected. Add <code>YT_API_KEY=your_key</code> to{" "}
+              <code>backend/.env</code> and restart the server.
+            </div>
+          )}
 
-      <div style={{ display: tab === "video" ? "block" : "none" }}><VideoTab /></div>
-      <div style={{ display: tab === "player" ? "block" : "none" }}><VideoPlayerTab /></div>
-      <div style={{ display: tab === "channelSearch" ? "block" : "none" }}><ChannelSearchTab /></div>
-      <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>
-      <div style={{ display: tab === "channel" ? "block" : "none" }}><ChannelTab active={tab === "channel"} /></div>
-      <div style={{ display: tab === "comment" ? "block" : "none" }}><CommentTab /></div>
-      <div style={{ display: tab === "comments" ? "block" : "none" }}><CommentsTab active={tab === "comments"} /></div>
-      <div style={{ display: tab === "playlist" ? "block" : "none" }}><PlaylistTab active={tab === "playlist"} /></div>
+          <div style={{ display: tab === "video" ? "block" : "none" }}><VideoTab /></div>
+          <div style={{ display: tab === "player" ? "block" : "none" }}><VideoPlayerTab /></div>
+          <div style={{ display: tab === "channelSearch" ? "block" : "none" }}><ChannelSearchTab /></div>
+          <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>
+          <div style={{ display: tab === "channel" ? "block" : "none" }}><ChannelTab active={tab === "channel"} /></div>
+          <div style={{ display: tab === "comment" ? "block" : "none" }}><CommentTab /></div>
+          <div style={{ display: tab === "comments" ? "block" : "none" }}><CommentsTab active={tab === "comments"} /></div>
+          <div style={{ display: tab === "playlist" ? "block" : "none" }}><PlaylistTab active={tab === "playlist"} /></div>
+        </div>
+      </main>
     </div>
   );
 }
