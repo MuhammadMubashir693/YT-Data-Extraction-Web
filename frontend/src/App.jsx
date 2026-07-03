@@ -1,8 +1,15 @@
 import React, { useEffect, useState } from "react";
 import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
+import LinkifiedText from "./LinkifiedText.jsx";
 import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
 import { fmtCount } from "./../../backend/helpers.js";
+import {
+  addStoredChannel,
+  deleteStoredChannel,
+  getStoredChannels,
+  updateStoredChannel,
+} from "./channelStorage.js";
 
 // ── Client-side video ID parser (mirrors helpers.js) ─────────────────────
 
@@ -387,7 +394,7 @@ function ChannelResultCard({ ch }) {
         </div>
         {ch.description && (
           <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
-            {ch.description}
+            <LinkifiedText text={ch.description} />
           </div>
         )}
       </div>
@@ -949,15 +956,23 @@ function ChannelManagerTab() {
   const refreshChannels = async () => {
     try {
       const data = await apiGet("channels");
-      setChannels(data);
+      const resolved = Array.isArray(data) ? data : [];
+      setChannels(resolved);
       setChannelsLoaded(true);
-      if (data.length && !data.some((c) => c.id === selectedId)) {
+      if (resolved.length && !resolved.some((c) => c.id === selectedId)) {
         setSelectedId("");
         setName("");
         setId("");
       }
     } catch {
-      setChannelsLoaded(false);
+      const fallback = getStoredChannels();
+      setChannels(fallback);
+      setChannelsLoaded(true);
+      if (fallback.length && !fallback.some((c) => c.id === selectedId)) {
+        setSelectedId("");
+        setName("");
+        setId("");
+      }
     }
   };
 
@@ -1000,7 +1015,14 @@ function ChannelManagerTab() {
       setId(data.id);
       notify("Channel added successfully.", "success");
     } catch (err) {
-      notify(err.message);
+      const fallbackChannel = { name: name.trim(), id: id.trim() };
+      addStoredChannel(fallbackChannel);
+      const fallback = getStoredChannels();
+      setChannels(fallback);
+      setSelectedId(fallbackChannel.id);
+      setName(fallbackChannel.name);
+      setId(fallbackChannel.id);
+      notify("Channel saved locally because the backend is unavailable.", "success");
     } finally {
       setLoading(false);
     }
@@ -1025,7 +1047,12 @@ function ChannelManagerTab() {
       setId(data.id);
       notify("Channel updated successfully.", "success");
     } catch (err) {
-      notify(err.message);
+      const updated = updateStoredChannel(selectedId, { name: name.trim(), id: id.trim() });
+      setChannels(updated);
+      setSelectedId(id.trim());
+      setName(name.trim());
+      setId(id.trim());
+      notify("Channel updated locally because the backend is unavailable.", "success");
     } finally {
       setLoading(false);
     }
@@ -1048,7 +1075,12 @@ function ChannelManagerTab() {
       setId("");
       notify("Channel deleted successfully.", "success");
     } catch (err) {
-      notify(err.message);
+      const updated = deleteStoredChannel(selectedId);
+      setChannels(updated);
+      setSelectedId("");
+      setName("");
+      setId("");
+      notify("Channel removed locally because the backend is unavailable.", "success");
     } finally {
       setLoading(false);
     }
@@ -1227,7 +1259,7 @@ function ChannelTab({ active = true }) {
               </div>
               {channel.description && (
                 <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
-                  {channel.description}
+                  <LinkifiedText text={channel.description} />
                 </div>
               )}
               {channel.playlists?.length > 0 && (
@@ -1579,7 +1611,9 @@ function CommentsTab({ active = true }) {
                   </div>
                 </div>
               </div>
-              <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>{thread.textDisplay}</div>
+              <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
+                <LinkifiedText text={thread.textDisplay} />
+              </div>
               {thread.replyCount > 0 && (
                 <button
                   type="button"
@@ -1688,7 +1722,9 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
               </div>
             </div>
           </div>
-          <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>{reply.textDisplay}</div>
+          <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
+            <LinkifiedText text={reply.textDisplay} />
+          </div>
         </div>
       ))}
       {replyState.loading && <div className="message-box secondary" style={{ marginTop: 10 }}>Loading replies...</div>}
@@ -1788,7 +1824,7 @@ function PlaylistTab({ active = true }) {
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Description: </span>
                 {data.playlistInfo.description ? (
                   <div className="description" style={{ marginTop: 4, maxHeight: "none", overflow: "visible" }}>
-                    {data.playlistInfo.description}
+                    <LinkifiedText text={data.playlistInfo.description} />
                   </div>
                 ) : (
                   <span style={{ fontSize: 13, color: "var(--muted)" }}>N/A</span>

@@ -1,5 +1,6 @@
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
+import LinkifiedText from "./LinkifiedText.jsx";
 import { fmtCount } from "../../backend/helpers.js";
 
 export default function VideoCard({ v }) {
@@ -22,7 +23,11 @@ export default function VideoCard({ v }) {
           <span><b>Likes:</b> {fmtCount(v.likes)}</span>
           <span><b>Comments:</b> {fmtCount(v.comments)}</span>
         </div>
-        {v.description && <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>{v.description}</div>}
+        {v.description && (
+          <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+            <LinkifiedText text={v.description} />
+          </div>
+        )}
       </div>
     </div>
   );

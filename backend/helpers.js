@@ -253,11 +253,12 @@ export function shapeVideo(item, idOverride) {
     views: stat.viewCount ?? "N/A",
     comments: stat.commentCount ?? "N/A",
     thumbnail:
+      sid.thumbnails?.maxres?.url ||
       sid.thumbnails?.standard?.url ||
       sid.thumbnails?.high?.url ||
       sid.thumbnails?.medium?.url ||
       sid.thumbnails?.default?.url ||
-      `https://i.ytimg.com/vi/${vid}/sddefault.jpg`,
+      `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`,
     description: (sid.description || "").trim(),
     publishedAtRaw: sid.publishedAt,
   };
