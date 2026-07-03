@@ -705,8 +705,8 @@ function ChannelSearchTab() {
             <div className="field">
               <label>Search type</label>
               <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
-                <option value="channel">Search within Channel</option>
-                <option value="general">Search Videos Generally</option>
+                <option value="channel">Search within channel</option>
+                <option value="general">Search generally</option>
               </select>
             </div>
 
@@ -1209,8 +1209,8 @@ function ChannelTab({ active = true }) {
             <ImageWithFallback src={channel.banner} alt="banner" className="banner-img" />
           )}
           {channel.thumbnail !== "N/A" && (
-            <div className="channel-avatar-row">
-              <ImageWithFallback src={channel.thumbnail} alt="avatar" className="channel-avatar-large" />
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+              <ImageWithFallback src={channel.thumbnail} alt="avatar" className="channel-avatar-square" />
             </div>
           )}
           <div className="channel-card">
@@ -1783,6 +1783,16 @@ function PlaylistTab({ active = true }) {
                 <span><b>Channel ID:</b> {data.playlistInfo.channelId}</span>
                 <span><b>Channel Name:</b> {data.playlistInfo.channelTitle}</span>
                 <span><b>Published At:</b> {data.playlistInfo.publishedAt}</span>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Description: </span>
+                {data.playlistInfo.description ? (
+                  <div className="description" style={{ marginTop: 4, maxHeight: "none", overflow: "visible" }}>
+                    {data.playlistInfo.description}
+                  </div>
+                ) : (
+                  <span style={{ fontSize: 13, color: "var(--muted)" }}>N/A</span>
+                )}
               </div>
             </div>
           )}

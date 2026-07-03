@@ -307,8 +307,8 @@ app.get("/api/channel-videos", async (req, res) => {
       keywordChannel,
       startDate,
       endDate,
-      durationFilter, // 'short' | 'medium' | 'long',
-      matchMode, // 'every' | 'some'
+      durationFilter, // 'short' | 'medium' | 'long'
+      matchMode,      // 'every' | 'some'
     } = req.query;
 
     if (!channelId) {
@@ -520,19 +520,12 @@ app.get("/api/comments", async (req, res) => {
     const validSorts = ["top", "latest", "earliest", "likes-desc", "likes-asc"];
     const sortIn = String(req.query.sort || "top").toLowerCase();
     const sort = validSorts.includes(sortIn) ? sortIn : "top";
-    // The YouTube API only natively supports ordering by "relevance" (top) or "time" (latest).
-    // earliest/likes-asc/likes-desc are achieved by fetching with "time" order and re-sorting
-    // the page locally, since the API has no native ascending-time or likes ordering.
     const apiOrder = sort === "top" ? "relevance" : "time";
     const keyword = String(req.query.keyword || "").trim().toLowerCase();
     const startDate = req.query.startDate ? new Date(`${req.query.startDate}T00:00:00Z`) : null;
     const endDate = req.query.endDate ? new Date(`${req.query.endDate}T23:59:59Z`) : null;
     const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
 
-    // Real, stable total comment count for the video, taken from the videos endpoint
-    // (statistics.commentCount). This is fetched once per request and is NOT derived from
-    // however many threads/replies happen to have been paged in on the client, so it won't
-    // drift as more pages are loaded.
     let totalCommentCount = null;
     try {
       const videoStats = await ytFetch("videos", { part: "statistics", id: videoId });
@@ -703,6 +696,7 @@ app.get("/api/playlist", async (req, res) => {
         channelId: playlist.snippet?.channelId || "N/A",
         channelTitle: playlist.snippet?.channelTitle || "N/A",
         publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
+        description: (playlist.snippet?.description || "").trim(),
       };
     }
 
@@ -759,7 +753,7 @@ app.get("/api/search-videos", async (req, res) => {
       startDate,
       endDate,
       durationFilter, // 'short' | 'medium' | 'long'
-      matchMode,
+      matchMode,      // 'every' | 'some'
     } = req.query;
 
     // Determine mode
@@ -850,7 +844,6 @@ app.get("/api/search-channels", async (req, res) => {
 
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
 
-    // Use the keyword for the YouTube search API q= param
     const apiKeyword = keyword;
 
     let channelIds = [];
@@ -878,7 +871,6 @@ app.get("/api/search-channels", async (req, res) => {
       return res.json({ channels: [], count: 0 });
     }
 
-    // Fetch full channel details in batches of 50
     let fullItems = [];
     for (let i = 0; i < channelIds.length; i += 50) {
       const batch = channelIds.slice(i, i + 50);
@@ -889,8 +881,6 @@ app.get("/api/search-channels", async (req, res) => {
       fullItems.push(...(resp.items || []));
     }
 
-    // Server-side keyword filtering — matched only against the channel name (title),
-    // not the channel description.
     fullItems = fullItems.filter((ch) =>
       keywordMatches([ch.snippet?.title || ""], keyword)
     );
@@ -931,14 +921,12 @@ app.get("/api/search-playlists", async (req, res) => {
 
     const hasPerField = [keywordTitle, keywordChannel].some((k) => k && k.trim());
 
-    // At least one keyword must be provided
     if (!keyword && !hasPerField) {
       return res.status(400).json({ error: "keyword is required." });
     }
 
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
 
-    // Use the combined keyword or the title keyword for the YouTube search API q= param
     const apiKeyword = keyword || keywordTitle || "";
 
     let playlistIds = [];
@@ -966,7 +954,6 @@ app.get("/api/search-playlists", async (req, res) => {
       return res.json({ playlists: [], count: 0 });
     }
 
-    // Fetch full playlist details in batches of 50
     let fullItems = [];
     for (let i = 0; i < playlistIds.length; i += 50) {
       const batch = playlistIds.slice(i, i + 50);
@@ -977,7 +964,6 @@ app.get("/api/search-playlists", async (req, res) => {
       fullItems.push(...(resp.items || []));
     }
 
-    // Server-side keyword filtering
     if (hasPerField) {
       fullItems = fullItems.filter((pl) => {
         const title = pl.snippet?.title || "";

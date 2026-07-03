@@ -320,28 +320,9 @@ button.secondary:hover {
   display: block;
 }
 
-.banner-img {
-  width: 100%;
-  height: auto;
-  object-fit: cover;
-  border-radius: 10px;
-  margin-bottom: 14px;
-}
 
-.channel-avatar-row {
-  text-align: center;
-  margin-bottom: 14px;
-}
 
-.channel-avatar-large {
-  width: auto;
-  max-width: 220px;
-  height: auto;
-  border-radius: 50%;
-  object-fit: cover;
-  display: inline-block;
-  border: 1px solid var(--border);
-}
+
 
 .description {
   font-size: 13px;
@@ -363,19 +344,24 @@ button.secondary:hover {
   flex-shrink: 0;
 }
 
-.channel-avatar-row {
-  text-align: center;
+
+
+.banner-img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
   margin-bottom: 14px;
+  display: block;
 }
 
-.channel-avatar-large {
-  width: auto;
-  max-width: 280px;
-  height: auto;
-  border-radius: 50%;
+.channel-avatar-square {
+  width: 220px;
+  height: 220px;
   object-fit: cover;
-  display: inline-block;
+  border-radius: 10px;
   border: 1px solid var(--border);
+  display: block;
 }
 
 .comment-avatar {
@@ -435,13 +421,7 @@ button.secondary:hover {
   padding-right: 4px;
 }
 
-.banner-img {
-  width: 100%;
-  max-height: 180px;
-  object-fit: cover;
-  border-radius: 10px;
-  margin-bottom: 14px;
-}
+
 
 .spinner {
   display: inline-block;
