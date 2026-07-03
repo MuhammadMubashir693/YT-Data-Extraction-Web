@@ -332,6 +332,17 @@ button.secondary:hover {
   overflow-y: auto;
 }
 
+.description a {
+  color: var(--accent-2);
+  text-decoration: underline;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.description a:hover {
+  text-decoration: none;
+}
+
 .channel-card {
   display: block;
 }
