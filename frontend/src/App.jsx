@@ -108,26 +108,38 @@ function filterVideosByDateRange(videos, startDate, endDate) {
   });
 }
 
-function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, loadingLabel = "Loading more...", active = true }) {
+function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, loadingLabel = "Loading more...", active = true, manual = false }) {
   const [count, setCount] = useState(pageSize);
   const hasMore = count < items.length;
-  const { isNearBottom } = useInfiniteScroll({ enabled: hasMore && active, threshold: 0.85 });
+  const { isNearBottom } = useInfiniteScroll({ enabled: !manual && hasMore && active, threshold: 0.85 });
 
   useEffect(() => {
     setCount(pageSize);
   }, [resetKey, pageSize]);
 
   useEffect(() => {
-    if (isNearBottom && hasMore) {
+    if (!manual && isNearBottom && hasMore) {
       setCount((c) => Math.min(c + pageSize, items.length));
     }
-  }, [isNearBottom, hasMore, pageSize, items.length]);
+  }, [isNearBottom, hasMore, pageSize, items.length, manual]);
 
   return (
     <div>
       {items.slice(0, count).map(renderItem)}
       {hasMore && (
-        <div className="message-box secondary" style={{ marginTop: 10 }}>{loadingLabel}</div>
+        manual ? (
+          <div style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setCount((c) => Math.min(c + pageSize, items.length))}
+            >
+              View more
+            </button>
+          </div>
+        ) : (
+          <div className="message-box secondary" style={{ marginTop: 10 }}>{loadingLabel}</div>
+        )
       )}
     </div>
   );
@@ -1176,6 +1188,9 @@ function ChannelTab({ active = true }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [playlistSort, setPlaylistSort] = useState("date-desc");
+  const [plTitleSearch, setPlTitleSearch] = useState("");
+  const [plStartDate, setPlStartDate] = useState("");
+  const [plEndDate, setPlEndDate] = useState("");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1225,6 +1240,20 @@ function ChannelTab({ active = true }) {
       default:
         return items;
     }
+  })();
+
+  const filteredPlaylists = (() => {
+    if (!sortedPlaylists?.length) return [];
+    const term = plTitleSearch.trim().toLowerCase();
+    const byTitle = term ? sortedPlaylists.filter((p) => (p.title || "").toLowerCase().includes(term)) : sortedPlaylists;
+    if (!plStartDate && !plEndDate) return byTitle;
+    return byTitle.filter((p) => {
+      if (!p.publishedAtRaw) return false;
+      const day = p.publishedAtRaw.slice(0, 10);
+      if (plStartDate && day < plStartDate) return false;
+      if (plEndDate && day > plEndDate) return false;
+      return true;
+    });
   })();
 
   return (
@@ -1295,11 +1324,27 @@ function ChannelTab({ active = true }) {
                   <p className="result-count" style={{ margin: "0 0 8px" }}>
                     Playlist count: {fmtCount(sortedPlaylists.length)}
                   </p>
+                  <div className="field">
+                    <label>Search playlists by title</label>
+                    <input type="text" placeholder="Filter playlists by title" value={plTitleSearch} onChange={(e) => setPlTitleSearch(e.target.value)} />
+                  </div>
+                  <div className="row">
+                    <div className="field">
+                      <label>Start date</label>
+                      <input type="date" value={plStartDate} onChange={(e) => autoSwapDates(e.target.value, plEndDate, setPlStartDate, setPlEndDate)} />
+                    </div>
+                    <div className="field">
+                      <label>End date</label>
+                      <input type="date" value={plEndDate} onChange={(e) => autoSwapDates(plStartDate, e.target.value, setPlStartDate, setPlEndDate)} />
+                    </div>
+                  </div>
                   <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
                     <ProgressiveList
-                      items={sortedPlaylists}
+                      items={filteredPlaylists}
+                      pageSize={50}
+                      manual={true}
                       resetKey={`${channel.channelId}:${playlistSort}`}
-                      loadingLabel="Scroll for more playlists"
+                      loadingLabel="View more playlists"
                       active={active}
                       renderItem={(playlist) => (
                         <div key={playlist.playlistId} style={{ marginBottom: 10 }}>
@@ -1425,7 +1470,7 @@ function CommentsTab({ active = true }) {
   const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [replyPages, setReplyPages] = useState({});
-  const { isNearBottom } = useInfiniteScroll({ enabled: hasMore && active });
+  // manual "View more" style: do not auto-load on scroll for top-level threads
 
   const buildBaseParams = () => {
     const params = { q: input, sort };
@@ -1445,6 +1490,7 @@ function CommentsTab({ active = true }) {
     try {
       const params = buildBaseParams();
       if (pageToken) params.pageToken = pageToken;
+      params.maxResults = 50;
       const data = await apiGet("comments", params);
       setThreads((prev) => [...prev, ...(data.threads || [])]);
       setCommentCount(data.commentCount ?? null);
@@ -1490,11 +1536,7 @@ function CommentsTab({ active = true }) {
     await fetchCommentsPage({ pageToken: nextPageToken });
   };
 
-  useEffect(() => {
-    if (isNearBottom && hasMore && !loading) {
-      loadMore();
-    }
-  }, [isNearBottom, hasMore, loading, nextPageToken]);
+  // no automatic loading; user must click "View more" to fetch next page
 
   const toggleReplies = (threadId) => {
     setExpandedThreads((prev) => ({
@@ -1691,6 +1733,13 @@ function CommentsTab({ active = true }) {
               )}
             </div>
           ))}
+          {hasMore && (
+            <div style={{ marginTop: 12 }}>
+              <button type="button" className="secondary" onClick={loadMore} disabled={loading}>
+                {loading ? "Loading..." : "View more comments"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1756,7 +1805,10 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
 function PlaylistTab({ active = true }) {
   const [input, setInput] = useState("");
   const [sortOption, setSortOption] = useState("date-asc");
-  const [data, setData] = useState(null);
+  const [playlistInfo, setPlaylistInfo] = useState(null);
+  const [playlistVideos, setPlaylistVideos] = useState([]);
+  const [nextPageToken, setNextPageToken] = useState(null);
+  const [hasMorePages, setHasMorePages] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -1765,26 +1817,29 @@ function PlaylistTab({ active = true }) {
   const [endDate, setEndDate] = useState("");
 
   const filteredVideos = (() => {
-    if (!data?.videos?.length) return [];
+    if (!playlistVideos?.length) return [];
     const term = titleSearch.trim().toLowerCase();
-    const byTitle = term
-      ? data.videos.filter((v) => (v.title || "").toLowerCase().includes(term))
-      : data.videos;
+    const byTitle = term ? playlistVideos.filter((v) => (v.title || "").toLowerCase().includes(term)) : playlistVideos;
     return filterVideosByDateRange(byTitle, startDate, endDate);
   })();
-  const sortedVideos = sortVideosClient(filteredVideos, sortOption);
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    setData(null);
+    setPlaylistInfo(null);
+    setPlaylistVideos([]);
+    setNextPageToken(null);
+    setHasMorePages(false);
     setTitleSearch("");
     setStartDate("");
     setEndDate("");
     setLoading(true);
     try {
-      const result = await apiGet("playlist", { q: input, sort: sortOption });
-      setData(result);
+      const result = await apiGet("playlist", { q: input, sort: sortOption, maxResults: 50 });
+      setPlaylistInfo(result.playlistInfo || null);
+      setPlaylistVideos(result.videos || []);
+      setNextPageToken(result.nextPageToken || null);
+      setHasMorePages(Boolean(result.nextPageToken));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1795,11 +1850,14 @@ function PlaylistTab({ active = true }) {
   const reset = () => {
     setInput("");
     setSortOption("date-asc");
-    setData(null);
+    setPlaylistInfo(null);
+    setPlaylistVideos([]);
     setError("");
     setTitleSearch("");
     setStartDate("");
     setEndDate("");
+    setNextPageToken(null);
+    setHasMorePages(false);
   };
 
   return (
@@ -1838,7 +1896,7 @@ function PlaylistTab({ active = true }) {
         </div>
       </form>
       <ErrorBox message={error} />
-      {data && (
+      {playlistInfo && (
         <>
           <div className="field">
             <label>Search within playlist by title</label>
@@ -1868,24 +1926,24 @@ function PlaylistTab({ active = true }) {
             </div>
           </div>
           <ExportBar
-            data={{ ...(data.playlistInfo || {}), videos: sortedVideos }}
+            data={{ ...(playlistInfo || {}), videos: filteredVideos }}
             filenameBase="playlist-details"
           />
-          {data.playlistInfo && Object.keys(data.playlistInfo).length > 0 && (
+          {playlistInfo && Object.keys(playlistInfo).length > 0 && (
             <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
               <h3>Playlist Details</h3>
               <div className="meta-grid">
-                <span><b>Playlist ID:</b> {data.playlistInfo.playlistId}</span>
-                <span><b>Title:</b> {data.playlistInfo.title}</span>
-                <span><b>Channel ID:</b> {data.playlistInfo.channelId}</span>
-                <span><b>Channel Name:</b> {data.playlistInfo.channelTitle}</span>
-                <span><b>Published At:</b> {data.playlistInfo.publishedAt}</span>
+                <span><b>Playlist ID:</b> {playlistInfo.playlistId}</span>
+                <span><b>Title:</b> {playlistInfo.title}</span>
+                <span><b>Channel ID:</b> {playlistInfo.channelId}</span>
+                <span><b>Channel Name:</b> {playlistInfo.channelTitle}</span>
+                <span><b>Published At:</b> {playlistInfo.publishedAt}</span>
               </div>
               <div style={{ marginTop: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Description: </span>
-                {data.playlistInfo.description ? (
+                {playlistInfo.description ? (
                   <div className="description" style={{ marginTop: 4, maxHeight: "none", overflow: "visible" }}>
-                    <LinkifiedText text={data.playlistInfo.description} />
+                    <LinkifiedText text={playlistInfo.description} />
                   </div>
                 ) : (
                   <span style={{ fontSize: 13, color: "var(--muted)" }}>N/A</span>
@@ -1893,14 +1951,37 @@ function PlaylistTab({ active = true }) {
               </div>
             </div>
           )}
-          <p className="result-count" style={{ marginTop: 16 }}>Video count: {fmtCount(sortedVideos.length)}</p>
-          <ProgressiveList
-            items={sortedVideos}
-            resetKey={`${data.playlistInfo?.playlistId || ""}:${sortOption}:${titleSearch}:${startDate}:${endDate}`}
-            renderItem={({ description: _desc, ...v }) => <VideoCard key={v.videoId} v={v} />}
-            loadingLabel="Scroll for more videos"
-            active={active}
-          />
+          <p className="result-count" style={{ marginTop: 16 }}>Video count: {fmtCount(filteredVideos.length)}</p>
+          <div>
+            {filteredVideos.map(({ description: _desc, ...v }) => (
+              <VideoCard key={v.videoId} v={v} />
+            ))}
+            {hasMorePages && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={async () => {
+                    if (!nextPageToken || loading) return;
+                    setLoading(true);
+                    try {
+                      const res = await apiGet("playlist", { q: input, sort: sortOption, maxResults: 50, pageToken: nextPageToken });
+                      setPlaylistVideos((p) => [...p, ...(res.videos || [])]);
+                      setNextPageToken(res.nextPageToken || null);
+                      setHasMorePages(Boolean(res.nextPageToken));
+                    } catch (err) {
+                      setError(err.message);
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  {loading ? "Loading..." : "View more videos"}
+                </button>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>

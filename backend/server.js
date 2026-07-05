@@ -578,10 +578,11 @@ app.get("/api/comments", async (req, res) => {
       // Non-fatal: leave totalCommentCount as null if this lookup fails.
     }
 
+    const requestedMax = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 20, 1), 50);
     const params = {
       part: "snippet,replies",
       videoId,
-      maxResults: 20,
+      maxResults: requestedMax,
       textFormat: "plainText",
       order: apiOrder,
     };
@@ -676,10 +677,11 @@ app.get("/api/comment-replies", async (req, res) => {
     }
     const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
 
+    const requestedMaxReplies = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 20, 1), 50);
     const params = {
       part: "snippet",
       parentId,
-      maxResults: 20,
+      maxResults: requestedMaxReplies,
       textFormat: "plainText",
     };
     if (pageToken) params.pageToken = pageToken;
@@ -809,7 +811,20 @@ app.get("/api/playlist", async (req, res) => {
     sortVideos(fullItems, sort);
 
     const videos = fullItems.map((v) => shapeVideo(v));
-    res.json({ playlistInfo, videos, count: videos.length });
+
+    // Server-side paging: support offset-style page tokens and maxResults
+    const max = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
+    const start = req.query.pageToken ? Math.max(parseInt(req.query.pageToken, 10) || 0, 0) : 0;
+    const end = Math.min(start + max, videos.length);
+    const pageSlice = videos.slice(start, end);
+    const nextPageToken = end < videos.length ? String(end) : null;
+
+    res.json({
+      playlistInfo,
+      videos: pageSlice,
+      count: videos.length,
+      nextPageToken,
+    });
   } catch (err) {
     handleError(res, err);
   }
