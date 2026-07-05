@@ -58,6 +58,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const PAGINATION_DELAY_MS = 250;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ytFetchWithPaginationDelay(resource, params, pageNumber = 0) {
+  if (pageNumber > 0) {
+    await sleep(PAGINATION_DELAY_MS);
+  }
+  return ytFetch(resource, params);
+}
+
 app.get("/api/proxy-image", async (req, res) => {
   const url = req.query.url;
   if (!url) {
@@ -339,16 +352,18 @@ app.get("/api/channel-videos", async (req, res) => {
 
     let videoIds = [];
     let nextPage;
+    let pageNumber = 0;
     do {
       const p = { ...params };
       if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetch("search", p);
+      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
       for (const item of resp.items || []) {
         const vidId = item.id?.videoId;
         if (vidId) videoIds.push(vidId);
       }
       nextPage = resp.nextPageToken;
       if (videoIds.length >= limit) break;
+      pageNumber += 1;
     } while (nextPage);
 
     videoIds = videoIds.slice(0, limit);
@@ -432,13 +447,18 @@ app.get("/api/channel", async (req, res) => {
 
     const playlists = [];
     let playlistPageToken;
+    let playlistPageNumber = 0;
     do {
-      const playlistResp = await ytFetch("playlists", {
-        part: "snippet,contentDetails",
-        channelId: ch.id,
-        maxResults: 50,
-        pageToken: playlistPageToken,
-      });
+      const playlistResp = await ytFetchWithPaginationDelay(
+        "playlists",
+        {
+          part: "snippet,contentDetails",
+          channelId: ch.id,
+          maxResults: 50,
+          pageToken: playlistPageToken,
+        },
+        playlistPageNumber
+      );
       for (const item of playlistResp.items || []) {
         const rawCount = item.contentDetails?.itemCount;
         playlists.push({
@@ -453,6 +473,7 @@ app.get("/api/channel", async (req, res) => {
         });
       }
       playlistPageToken = playlistResp.nextPageToken;
+      playlistPageNumber += 1;
     } while (playlistPageToken);
 
     // The channel's uploads playlist (contentDetails.relatedPlaylists.uploads) is
@@ -753,15 +774,17 @@ app.get("/api/playlist", async (req, res) => {
 
     let videoIds = [];
     let nextPage;
+    let pageNumber = 0;
     do {
       const params = { part: "snippet", playlistId, maxResults: 50 };
       if (nextPage) params.pageToken = nextPage;
-      const resp = await ytFetch("playlistItems", params);
+      const resp = await ytFetchWithPaginationDelay("playlistItems", params, pageNumber);
       for (const item of resp.items || []) {
         const vidId = item.snippet?.resourceId?.videoId;
         if (vidId) videoIds.push(vidId);
       }
       nextPage = resp.nextPageToken;
+      pageNumber += 1;
     } while (nextPage);
 
     if (!videoIds.length) {
@@ -835,16 +858,18 @@ app.get("/api/search-videos", async (req, res) => {
 
     let videoIds = [];
     let nextPage;
+    let pageNumber = 0;
     do {
       const p = { ...params };
       if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetch("search", p);
+      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
       for (const item of resp.items || []) {
         const vidId = item.id?.videoId;
         if (vidId) videoIds.push(vidId);
       }
       nextPage = resp.nextPageToken;
       if (videoIds.length >= limit) break;
+      pageNumber += 1;
     } while (nextPage);
 
     videoIds = videoIds.slice(0, limit);
@@ -899,6 +924,7 @@ app.get("/api/search-channels", async (req, res) => {
 
     let channelIds = [];
     let nextPage;
+    let pageNumber = 0;
     do {
       const p = {
         part: "snippet",
@@ -907,13 +933,14 @@ app.get("/api/search-channels", async (req, res) => {
         type: "channel",
       };
       if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetch("search", p);
+      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
       for (const item of resp.items || []) {
         const cid = item.id?.channelId;
         if (cid) channelIds.push(cid);
       }
       nextPage = resp.nextPageToken;
       if (channelIds.length >= limit) break;
+      pageNumber += 1;
     } while (nextPage);
 
     channelIds = channelIds.slice(0, limit);
@@ -982,6 +1009,7 @@ app.get("/api/search-playlists", async (req, res) => {
 
     let playlistIds = [];
     let nextPage;
+    let pageNumber = 0;
     do {
       const p = {
         part: "snippet",
@@ -990,13 +1018,14 @@ app.get("/api/search-playlists", async (req, res) => {
         type: "playlist",
       };
       if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetch("search", p);
+      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
       for (const item of resp.items || []) {
         const pid = item.id?.playlistId;
         if (pid) playlistIds.push(pid);
       }
       nextPage = resp.nextPageToken;
       if (playlistIds.length >= limit) break;
+      pageNumber += 1;
     } while (nextPage);
 
     playlistIds = playlistIds.slice(0, limit);

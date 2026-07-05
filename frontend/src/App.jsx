@@ -81,6 +81,33 @@ function sortVideosClient(videos, sort) {
 
 const PAGE_SIZE = 20;
 
+// If the end date is earlier than the start date, swap them — used by any
+// start/end date pair so a user entering them in the "incorrect" order still
+// gets a sensible range instead of an empty one.
+function autoSwapDates(newStart, newEnd, setStart, setEnd) {
+  if (newStart && newEnd && newEnd < newStart) {
+    setStart(newEnd);
+    setEnd(newStart);
+  } else {
+    setStart(newStart);
+    setEnd(newEnd);
+  }
+}
+
+// Client-side filter: keeps videos whose publish date falls within
+// [startDate, endDate] (inclusive), comparing by UTC calendar day. Either
+// bound can be blank to leave that side open-ended.
+function filterVideosByDateRange(videos, startDate, endDate) {
+  if (!startDate && !endDate) return videos;
+  return videos.filter((v) => {
+    if (!v.publishedAtRaw) return false;
+    const day = v.publishedAtRaw.slice(0, 10); // YYYY-MM-DD, comparable as a string
+    if (startDate && day < startDate) return false;
+    if (endDate && day > endDate) return false;
+    return true;
+  });
+}
+
 function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, loadingLabel = "Loading more...", active = true }) {
   const [count, setCount] = useState(pageSize);
   const hasMore = count < items.length;
@@ -469,17 +496,6 @@ function ChannelSearchTab() {
   const [loading, setLoading] = useState(false);
 
   const sortedVideos = videos ? sortVideosClient(videos, sortOption) : null;
-
-  // ── Date auto-swap helper ──────────────────────────────────────────────
-  const autoSwapDates = (newStart, newEnd, setStart, setEnd) => {
-    if (newStart && newEnd && newEnd < newStart) {
-      setStart(newEnd);
-      setEnd(newStart);
-    } else {
-      setStart(newStart);
-      setEnd(newEnd);
-    }
-  };
 
   const refreshChannels = async () => {
     try {
@@ -1744,12 +1760,27 @@ function PlaylistTab({ active = true }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const sortedVideos = data?.videos ? sortVideosClient(data.videos, sortOption) : [];
+  const [titleSearch, setTitleSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const filteredVideos = (() => {
+    if (!data?.videos?.length) return [];
+    const term = titleSearch.trim().toLowerCase();
+    const byTitle = term
+      ? data.videos.filter((v) => (v.title || "").toLowerCase().includes(term))
+      : data.videos;
+    return filterVideosByDateRange(byTitle, startDate, endDate);
+  })();
+  const sortedVideos = sortVideosClient(filteredVideos, sortOption);
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setData(null);
+    setTitleSearch("");
+    setStartDate("");
+    setEndDate("");
     setLoading(true);
     try {
       const result = await apiGet("playlist", { q: input, sort: sortOption });
@@ -1766,6 +1797,9 @@ function PlaylistTab({ active = true }) {
     setSortOption("date-asc");
     setData(null);
     setError("");
+    setTitleSearch("");
+    setStartDate("");
+    setEndDate("");
   };
 
   return (
@@ -1806,6 +1840,33 @@ function PlaylistTab({ active = true }) {
       <ErrorBox message={error} />
       {data && (
         <>
+          <div className="field">
+            <label>Search within playlist by title</label>
+            <input
+              type="text"
+              placeholder="Filter loaded videos by title"
+              value={titleSearch}
+              onChange={(e) => setTitleSearch(e.target.value)}
+            />
+          </div>
+          <div className="row">
+            <div className="field">
+              <label>Start date</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)}
+              />
+            </div>
+            <div className="field">
+              <label>End date</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)}
+              />
+            </div>
+          </div>
           <ExportBar
             data={{ ...(data.playlistInfo || {}), videos: sortedVideos }}
             filenameBase="playlist-details"
@@ -1835,7 +1896,7 @@ function PlaylistTab({ active = true }) {
           <p className="result-count" style={{ marginTop: 16 }}>Video count: {fmtCount(sortedVideos.length)}</p>
           <ProgressiveList
             items={sortedVideos}
-            resetKey={`${data.playlistInfo?.playlistId || ""}:${sortOption}`}
+            resetKey={`${data.playlistInfo?.playlistId || ""}:${sortOption}:${titleSearch}:${startDate}:${endDate}`}
             renderItem={({ description: _desc, ...v }) => <VideoCard key={v.videoId} v={v} />}
             loadingLabel="Scroll for more videos"
             active={active}
