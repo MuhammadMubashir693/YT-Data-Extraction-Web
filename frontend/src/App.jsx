@@ -1192,11 +1192,18 @@ function ChannelTab({ active = true }) {
   const [plStartDate, setPlStartDate] = useState("");
   const [plEndDate, setPlEndDate] = useState("");
 
+  const [latestCount, setLatestCount] = useState(10);
+  const [latestVideos, setLatestVideos] = useState(null);
+  const [latestLoading, setLatestLoading] = useState(false);
+  const [latestError, setLatestError] = useState("");
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setChannel(null);
     setLoading(true);
+    setLatestVideos(null);
+    setLatestError("");
     try {
       const data = await apiGet("channel", { q: input });
       setChannel(data);
@@ -1213,6 +1220,26 @@ function ChannelTab({ active = true }) {
     setChannel(null);
     setError("");
     setPlaylistSort("date-desc");
+    setLatestVideos(null);
+    setLatestError("");
+    setLatestCount(10);
+  };
+
+  const fetchLatestVideos = async () => {
+    if (!channel?.channelId || latestLoading) return;
+    setLatestError("");
+    setLatestLoading(true);
+    try {
+      const data = await apiGet("channel-latest-videos", {
+        channelId: channel.channelId,
+        count: latestCount,
+      });
+      setLatestVideos(data.videos || []);
+    } catch (err) {
+      setLatestError(err.message);
+    } finally {
+      setLatestLoading(false);
+    }
   };
 
   const sortedPlaylists = (() => {
@@ -1360,6 +1387,53 @@ function ChannelTab({ active = true }) {
                   </div>
                 </div>
               )}
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Latest Uploads</h3>
+                <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
+                  Pull the channel's most recent videos directly from its uploads playlist
+                  (a lightweight lookup — it doesn't fetch the whole playlist).
+                </p>
+                <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
+                  <div className="field" style={{ maxWidth: 160 }}>
+                    <label>Number of videos (5-50)</label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={50}
+                      value={latestCount}
+                      onChange={(e) => setLatestCount(e.target.value)}
+                    />
+                  </div>
+                  <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={
+                        latestLoading ||
+                        !Number.isInteger(Number(latestCount)) ||
+                        Number(latestCount) < 5 ||
+                        Number(latestCount) > 50
+                      }
+                      onClick={fetchLatestVideos}
+                    >
+                      {latestLoading && <Spinner />}
+                      Fetch Latest Videos
+                    </button>
+                  </div>
+                </div>
+                <ErrorBox message={latestError} />
+                {latestVideos && (
+                  <>
+                    <ExportBar data={latestVideos} filenameBase="channel-latest-videos" />
+                    <p className="result-count">Video count: {fmtCount(latestVideos.length)}</p>
+                    <div>
+                      {latestVideos.map((v) => (
+                        <VideoCard key={v.videoId} v={v} />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1809,6 +1883,7 @@ function PlaylistTab({ active = true }) {
   const [playlistVideos, setPlaylistVideos] = useState([]);
   const [nextPageToken, setNextPageToken] = useState(null);
   const [hasMorePages, setHasMorePages] = useState(false);
+  const [totalVideoCount, setTotalVideoCount] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -1830,6 +1905,7 @@ function PlaylistTab({ active = true }) {
     setPlaylistVideos([]);
     setNextPageToken(null);
     setHasMorePages(false);
+    setTotalVideoCount(0);
     setTitleSearch("");
     setStartDate("");
     setEndDate("");
@@ -1840,6 +1916,7 @@ function PlaylistTab({ active = true }) {
       setPlaylistVideos(result.videos || []);
       setNextPageToken(result.nextPageToken || null);
       setHasMorePages(Boolean(result.nextPageToken));
+      setTotalVideoCount(result.count ?? (result.videos || []).length);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1858,6 +1935,7 @@ function PlaylistTab({ active = true }) {
     setEndDate("");
     setNextPageToken(null);
     setHasMorePages(false);
+    setTotalVideoCount(0);
   };
 
   return (
@@ -1951,7 +2029,14 @@ function PlaylistTab({ active = true }) {
               </div>
             </div>
           )}
-          <p className="result-count" style={{ marginTop: 16 }}>Video count: {fmtCount(filteredVideos.length)}</p>
+          <p className="result-count" style={{ marginTop: 16 }}>
+            Video count: {fmtCount(totalVideoCount)}
+            {filteredVideos.length !== totalVideoCount && (
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                {" "}({fmtCount(filteredVideos.length)} shown{titleSearch || startDate || endDate ? " matching filters" : " loaded so far"})
+              </span>
+            )}
+          </p>
           <div>
             {filteredVideos.map(({ description: _desc, ...v }) => (
               <VideoCard key={v.videoId} v={v} />
@@ -1969,6 +2054,7 @@ function PlaylistTab({ active = true }) {
                       setPlaylistVideos((p) => [...p, ...(res.videos || [])]);
                       setNextPageToken(res.nextPageToken || null);
                       setHasMorePages(Boolean(res.nextPageToken));
+                      if (res.count != null) setTotalVideoCount(res.count);
                     } catch (err) {
                       setError(err.message);
                     } finally {

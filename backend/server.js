@@ -71,6 +71,46 @@ async function ytFetchWithPaginationDelay(resource, params, pageNumber = 0) {
   return ytFetch(resource, params);
 }
 
+// ── Playlist cache ───────────────────────────────────────────────────────
+//
+// Fully assembling a playlist requires paging through playlistItems.list
+// (50/page) and then videos.list (50/page) for every video in it — for a
+// large playlist that's dozens of sequential YouTube API calls. Without
+// caching, that entire process re-ran on every request for the same
+// playlist, including sort changes and "View more videos" pagination clicks,
+// even though the underlying playlist contents hadn't changed. We cache the
+// fully-assembled (unsorted) result per playlistId for a short window so
+// repeat requests are served from memory instead of hitting YouTube again.
+
+const PLAYLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PLAYLIST_CACHE_MAX_ENTRIES = 50;
+const playlistCache = new Map(); // playlistId -> { playlistInfo, items, expiresAt }
+
+function getCachedPlaylist(playlistId) {
+  const entry = playlistCache.get(playlistId);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    playlistCache.delete(playlistId);
+    return null;
+  }
+  // Refresh recency so frequently-viewed playlists survive eviction longer.
+  playlistCache.delete(playlistId);
+  playlistCache.set(playlistId, entry);
+  return entry;
+}
+
+function setCachedPlaylist(playlistId, { playlistInfo, items }) {
+  if (playlistCache.size >= PLAYLIST_CACHE_MAX_ENTRIES) {
+    const oldestKey = playlistCache.keys().next().value;
+    playlistCache.delete(oldestKey);
+  }
+  playlistCache.set(playlistId, {
+    playlistInfo,
+    items,
+    expiresAt: Date.now() + PLAYLIST_CACHE_TTL_MS,
+  });
+}
+
 app.get("/api/proxy-image", async (req, res) => {
   const url = req.query.url;
   if (!url) {
@@ -404,6 +444,64 @@ app.get("/api/channel-videos", async (req, res) => {
   }
 });
 
+// ── Part 3b – Latest videos from a channel's uploads playlist ─────────────
+//
+// Fetches only the most recent 5-50 videos for a channel via its uploads
+// playlist, instead of the (quota-expensive) search endpoint or a full walk
+// of the entire playlist. A single playlistItems.list call already covers
+// the whole supported range (maxResults ≤ 50), so no pagination is needed.
+
+app.get("/api/channel-latest-videos", async (req, res) => {
+  try {
+    const { channelId } = req.query;
+    if (!channelId) {
+      return res.status(400).json({ error: "channelId is required" });
+    }
+
+    const count = parseInt(req.query.count, 10);
+    if (!Number.isInteger(count) || count < 5 || count > 50) {
+      return res.status(400).json({ error: "count must be an integer between 5 and 50 (inclusive)." });
+    }
+
+    const chResp = await ytFetch("channels", { part: "contentDetails", id: channelId });
+    const uploadsPlaylistId = chResp.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsPlaylistId) {
+      return res.status(404).json({ error: "No uploads playlist found for that channel." });
+    }
+
+    const itemsResp = await ytFetch("playlistItems", {
+      part: "snippet",
+      playlistId: uploadsPlaylistId,
+      maxResults: count,
+    });
+
+    const videoIds = (itemsResp.items || [])
+      .map((item) => item.snippet?.resourceId?.videoId)
+      .filter(Boolean);
+
+    if (!videoIds.length) {
+      return res.json({ videos: [], count: 0, uploadsPlaylistId });
+    }
+
+    const vResp = await ytFetch("videos", {
+      part: "snippet,contentDetails,statistics",
+      id: videoIds.join(","),
+    });
+
+    // The uploads playlist is expected to already return newest-first, but we
+    // don't rely on that assumption — sort explicitly by publish date so the
+    // "latest N" guarantee holds regardless.
+    const fullItems = (vResp.items || []).sort((a, b) =>
+      b.snippet.publishedAt.localeCompare(a.snippet.publishedAt)
+    );
+
+    const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
+    res.json({ videos, count: videos.length, uploadsPlaylistId });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── Part 3 – Channel details ──────────────────────────────────────────────
 
 app.get("/api/channel", async (req, res) => {
@@ -718,6 +816,86 @@ app.get("/api/comment-replies", async (req, res) => {
 
 // ── Part 5 – Playlist videos ────────────────────────────────────────────────
 
+// Fetches playlist metadata + every video in the playlist from YouTube.
+// This is the expensive part (dozens of sequential API calls for a large
+// playlist) — isolated here so it can be skipped entirely on a cache hit.
+async function fetchFullPlaylistFromYouTube(playlistId) {
+  // Fetch playlist metadata
+  const playlistMetadata = await ytFetch("playlists", {
+    part: "snippet",
+    id: playlistId,
+  });
+
+  let playlistInfo = {};
+  if (playlistMetadata.items?.length) {
+    const playlist = playlistMetadata.items[0];
+    playlistInfo = {
+      playlistId: playlist.id,
+      title: playlist.snippet?.title || "N/A",
+      channelId: playlist.snippet?.channelId || "N/A",
+      channelTitle: playlist.snippet?.channelTitle || "N/A",
+      publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
+      description: (playlist.snippet?.description || "").trim(),
+    };
+  } else {
+    // "Special" playlists (channel uploads = UU, liked videos = LL, legacy
+    // favorites = FL, watch later = WL) are never returned by playlists.list,
+    // even by ID — but their ID encodes the owning channel's ID (swap the
+    // 2-letter prefix for "UC"), so we can still show meaningful details by
+    // looking up that channel instead. playlistItems.list below works fine
+    // for these regardless.
+    const SPECIAL_PLAYLIST_LABELS = { UU: "Uploads", LL: "Liked videos", FL: "Favorites", WL: "Watch later" };
+    const prefix = playlistId.slice(0, 2).toUpperCase();
+    const label = SPECIAL_PLAYLIST_LABELS[prefix];
+    if (label) {
+      try {
+        const derivedChannelId = `UC${playlistId.slice(2)}`;
+        const chResp = await ytFetch("channels", { part: "snippet", id: derivedChannelId });
+        const ch = chResp.items?.[0];
+        if (ch) {
+          playlistInfo = {
+            playlistId,
+            title: `${ch.snippet.title} – ${label}`,
+            channelId: ch.id,
+            channelTitle: ch.snippet.title,
+            publishedAt: fmtDatetime(ch.snippet.publishedAt),
+            description: (ch.snippet.description || "").trim(),
+          };
+        }
+      } catch {
+        // Non-fatal — the video listing below still works without playlistInfo.
+      }
+    }
+  }
+
+  let videoIds = [];
+  let nextPage;
+  let pageNumber = 0;
+  do {
+    const params = { part: "snippet", playlistId, maxResults: 50 };
+    if (nextPage) params.pageToken = nextPage;
+    const resp = await ytFetchWithPaginationDelay("playlistItems", params, pageNumber);
+    for (const item of resp.items || []) {
+      const vidId = item.snippet?.resourceId?.videoId;
+      if (vidId) videoIds.push(vidId);
+    }
+    nextPage = resp.nextPageToken;
+    pageNumber += 1;
+  } while (nextPage);
+
+  let items = [];
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const batch = videoIds.slice(i, i + 50);
+    const vresp = await ytFetch("videos", {
+      part: "snippet,contentDetails,statistics",
+      id: batch.join(","),
+    });
+    items.push(...(vresp.items || []));
+  }
+
+  return { playlistInfo, items };
+}
+
 app.get("/api/playlist", async (req, res) => {
   try {
     const raw = req.query.q || "";
@@ -726,103 +904,41 @@ app.get("/api/playlist", async (req, res) => {
       return res.status(400).json({ error: "Could not parse a valid playlist ID from the input." });
     }
 
-    // Fetch playlist metadata
-    const playlistMetadata = await ytFetch("playlists", {
-      part: "snippet",
-      id: playlistId,
-    });
-
-    let playlistInfo = {};
-    if (playlistMetadata.items?.length) {
-      const playlist = playlistMetadata.items[0];
-      playlistInfo = {
-        playlistId: playlist.id,
-        title: playlist.snippet?.title || "N/A",
-        channelId: playlist.snippet?.channelId || "N/A",
-        channelTitle: playlist.snippet?.channelTitle || "N/A",
-        publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
-        description: (playlist.snippet?.description || "").trim(),
-      };
-    } else {
-      // "Special" playlists (channel uploads = UU, liked videos = LL, legacy
-      // favorites = FL, watch later = WL) are never returned by playlists.list,
-      // even by ID — but their ID encodes the owning channel's ID (swap the
-      // 2-letter prefix for "UC"), so we can still show meaningful details by
-      // looking up that channel instead. playlistItems.list below works fine
-      // for these regardless.
-      const SPECIAL_PLAYLIST_LABELS = { UU: "Uploads", LL: "Liked videos", FL: "Favorites", WL: "Watch later" };
-      const prefix = playlistId.slice(0, 2).toUpperCase();
-      const label = SPECIAL_PLAYLIST_LABELS[prefix];
-      if (label) {
-        try {
-          const derivedChannelId = `UC${playlistId.slice(2)}`;
-          const chResp = await ytFetch("channels", { part: "snippet", id: derivedChannelId });
-          const ch = chResp.items?.[0];
-          if (ch) {
-            playlistInfo = {
-              playlistId,
-              title: `${ch.snippet.title} – ${label}`,
-              channelId: ch.id,
-              channelTitle: ch.snippet.title,
-              publishedAt: fmtDatetime(ch.snippet.publishedAt),
-              description: (ch.snippet.description || "").trim(),
-            };
-          }
-        } catch {
-          // Non-fatal — the video listing below still works without playlistInfo.
-        }
-      }
+    // Serve from cache when possible — this is what makes sort changes and
+    // "View more videos" pagination fast: they no longer re-fetch the whole
+    // playlist from YouTube, they just re-sort/re-slice data already in memory.
+    let cached = getCachedPlaylist(playlistId);
+    if (!cached) {
+      const fetched = await fetchFullPlaylistFromYouTube(playlistId);
+      cached = fetched;
+      setCachedPlaylist(playlistId, fetched);
     }
 
-    let videoIds = [];
-    let nextPage;
-    let pageNumber = 0;
-    do {
-      const params = { part: "snippet", playlistId, maxResults: 50 };
-      if (nextPage) params.pageToken = nextPage;
-      const resp = await ytFetchWithPaginationDelay("playlistItems", params, pageNumber);
-      for (const item of resp.items || []) {
-        const vidId = item.snippet?.resourceId?.videoId;
-        if (vidId) videoIds.push(vidId);
-      }
-      nextPage = resp.nextPageToken;
-      pageNumber += 1;
-    } while (nextPage);
+    const { playlistInfo, items } = cached;
 
-    if (!videoIds.length) {
+    if (!items.length) {
       return res.json({ playlistInfo, videos: [], count: 0 });
     }
 
-    let fullItems = [];
-    for (let i = 0; i < videoIds.length; i += 50) {
-      const batch = videoIds.slice(i, i + 50);
-      const vresp = await ytFetch("videos", {
-        part: "snippet,contentDetails,statistics",
-        id: batch.join(","),
-      });
-      fullItems.push(...(vresp.items || []));
-    }
-
-    fullItems.sort((a, b) =>
+    // Sort a copy so the cached order/reference stays stable across requests.
+    const sortedItems = items.slice().sort((a, b) =>
       a.snippet.publishedAt.localeCompare(b.snippet.publishedAt)
     );
-
     const sort = String(req.query.sort || "date-asc").toLowerCase();
-    sortVideos(fullItems, sort);
+    sortVideos(sortedItems, sort);
 
-    const videos = fullItems.map((v) => shapeVideo(v));
-
-    // Server-side paging: support offset-style page tokens and maxResults
+    // Server-side paging: support offset-style page tokens and maxResults.
+    // Only the requested slice is shaped, not the whole playlist.
     const max = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
     const start = req.query.pageToken ? Math.max(parseInt(req.query.pageToken, 10) || 0, 0) : 0;
-    const end = Math.min(start + max, videos.length);
-    const pageSlice = videos.slice(start, end);
-    const nextPageToken = end < videos.length ? String(end) : null;
+    const end = Math.min(start + max, sortedItems.length);
+    const pageSlice = sortedItems.slice(start, end).map((v) => shapeVideo(v));
+    const nextPageToken = end < sortedItems.length ? String(end) : null;
 
     res.json({
       playlistInfo,
       videos: pageSlice,
-      count: videos.length,
+      count: sortedItems.length,
       nextPageToken,
     });
   } catch (err) {
