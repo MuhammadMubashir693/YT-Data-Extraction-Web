@@ -82,7 +82,7 @@ async function ytFetchWithPaginationDelay(resource, params, pageNumber = 0) {
 // fully-assembled (unsorted) result per playlistId for a short window so
 // repeat requests are served from memory instead of hitting YouTube again.
 
-const PLAYLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PLAYLIST_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const PLAYLIST_CACHE_MAX_ENTRIES = 50;
 const playlistCache = new Map(); // playlistId -> { playlistInfo, items, expiresAt }
 
@@ -446,14 +446,16 @@ app.get("/api/channel-videos", async (req, res) => {
 
 // ── Part 3b – Latest videos from a channel's uploads playlist ─────────────
 //
-// Fetches only the most recent 5-50 videos for a channel via its uploads
+// Fetches the most recent 5-50 videos for a channel via its uploads
 // playlist, instead of the (quota-expensive) search endpoint or a full walk
-// of the entire playlist. A single playlistItems.list call already covers
-// the whole supported range (maxResults ≤ 50), so no pagination is needed.
+// of the entire playlist. Each page is a single playlistItems.list call
+// (maxResults ≤ 50 covers the whole supported range), and we pass through
+// YouTube's own nextPageToken/prevPageToken so callers can page forward and
+// backward through the uploads playlist without ever fetching all of it.
 
 app.get("/api/channel-latest-videos", async (req, res) => {
   try {
-    const { channelId } = req.query;
+    const { channelId, pageToken } = req.query;
     if (!channelId) {
       return res.status(400).json({ error: "channelId is required" });
     }
@@ -469,18 +471,23 @@ app.get("/api/channel-latest-videos", async (req, res) => {
       return res.status(404).json({ error: "No uploads playlist found for that channel." });
     }
 
-    const itemsResp = await ytFetch("playlistItems", {
+    const itemsParams = {
       part: "snippet",
       playlistId: uploadsPlaylistId,
       maxResults: count,
-    });
+    };
+    if (pageToken) itemsParams.pageToken = pageToken;
+
+    const itemsResp = await ytFetch("playlistItems", itemsParams);
+    const nextPageToken = itemsResp.nextPageToken || null;
+    const prevPageToken = itemsResp.prevPageToken || null;
 
     const videoIds = (itemsResp.items || [])
       .map((item) => item.snippet?.resourceId?.videoId)
       .filter(Boolean);
 
     if (!videoIds.length) {
-      return res.json({ videos: [], count: 0, uploadsPlaylistId });
+      return res.json({ videos: [], count: 0, uploadsPlaylistId, nextPageToken, prevPageToken });
     }
 
     const vResp = await ytFetch("videos", {
@@ -488,15 +495,15 @@ app.get("/api/channel-latest-videos", async (req, res) => {
       id: videoIds.join(","),
     });
 
-    // The uploads playlist is expected to already return newest-first, but we
-    // don't rely on that assumption — sort explicitly by publish date so the
-    // "latest N" guarantee holds regardless.
+    // The uploads playlist is expected to already return newest-first within
+    // each page, but we don't rely on that assumption — sort explicitly by
+    // publish date so ordering within the page is guaranteed regardless.
     const fullItems = (vResp.items || []).sort((a, b) =>
       b.snippet.publishedAt.localeCompare(a.snippet.publishedAt)
     );
 
     const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
-    res.json({ videos, count: videos.length, uploadsPlaylistId });
+    res.json({ videos, count: videos.length, uploadsPlaylistId, nextPageToken, prevPageToken });
   } catch (err) {
     handleError(res, err);
   }
@@ -1043,41 +1050,62 @@ app.get("/api/search-videos", async (req, res) => {
 
 app.get("/api/search-channels", async (req, res) => {
   try {
-    const { keyword, maxResults } = req.query;
+    const { keyword, maxResults, pageToken } = req.query;
 
     if (!keyword || !keyword.trim()) {
       return res.status(400).json({ error: "keyword is required." });
     }
 
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
-
     const apiKeyword = keyword;
 
     let channelIds = [];
-    let nextPage;
-    let pageNumber = 0;
-    do {
+    let nextPageToken = null;
+    let prevPageToken = null;
+
+    if (limit <= 50) {
+      // A single YouTube search page (≤ 50 results) maps 1:1 to one page of
+      // results here, so we can expose YouTube's own nextPageToken/
+      // prevPageToken directly for real forward/backward pagination.
       const p = {
         part: "snippet",
         q: apiKeyword,
-        maxResults: 50,
+        maxResults: limit,
         type: "channel",
       };
-      if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-      for (const item of resp.items || []) {
-        const cid = item.id?.channelId;
-        if (cid) channelIds.push(cid);
-      }
-      nextPage = resp.nextPageToken;
-      if (channelIds.length >= limit) break;
-      pageNumber += 1;
-    } while (nextPage);
-
-    channelIds = channelIds.slice(0, limit);
+      if (pageToken) p.pageToken = pageToken;
+      const resp = await ytFetch("search", p);
+      channelIds = (resp.items || []).map((item) => item.id?.channelId).filter(Boolean);
+      nextPageToken = resp.nextPageToken || null;
+      prevPageToken = resp.prevPageToken || null;
+    } else {
+      // Requests for more than one page's worth of results are aggregated
+      // into a single larger batch (no per-page nav exposed for this mode,
+      // since it already spans multiple underlying YouTube pages).
+      let nextPage;
+      let pageNumber = 0;
+      do {
+        const p = {
+          part: "snippet",
+          q: apiKeyword,
+          maxResults: 50,
+          type: "channel",
+        };
+        if (nextPage) p.pageToken = nextPage;
+        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
+        for (const item of resp.items || []) {
+          const cid = item.id?.channelId;
+          if (cid) channelIds.push(cid);
+        }
+        nextPage = resp.nextPageToken;
+        if (channelIds.length >= limit) break;
+        pageNumber += 1;
+      } while (nextPage);
+      channelIds = channelIds.slice(0, limit);
+    }
 
     if (!channelIds.length) {
-      return res.json({ channels: [], count: 0 });
+      return res.json({ channels: [], count: 0, nextPageToken, prevPageToken });
     }
 
     let fullItems = [];
@@ -1116,7 +1144,7 @@ app.get("/api/search-channels", async (req, res) => {
       };
     });
 
-    res.json({ channels, count: channels.length });
+    res.json({ channels, count: channels.length, nextPageToken, prevPageToken });
   } catch (err) {
     handleError(res, err);
   }

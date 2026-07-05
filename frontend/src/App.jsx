@@ -503,6 +503,8 @@ function ChannelSearchTab() {
   const [videos, setVideos] = useState(null);
   const [channelResults, setChannelResults] = useState(null);
   const [playlistResults, setPlaylistResults] = useState(null);
+  const [channelNextToken, setChannelNextToken] = useState(null);
+  const [channelPrevToken, setChannelPrevToken] = useState(null);
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -533,6 +535,8 @@ function ChannelSearchTab() {
     setVideos(null);
     setChannelResults(null);
     setPlaylistResults(null);
+    setChannelNextToken(null);
+    setChannelPrevToken(null);
     setError("");
   };
 
@@ -616,6 +620,8 @@ function ChannelSearchTab() {
         const params = { keyword: chKeyword.trim(), maxResults };
         const data = await apiGet("search-channels", params);
         setChannelResults(data.channels);
+        setChannelNextToken(data.nextPageToken || null);
+        setChannelPrevToken(data.prevPageToken || null);
       } else {
         const hasPerField = plUsePerField && (plKeywordTitle.trim() || plKeywordChannel.trim());
         if (!plUsePerField && !plKeyword.trim()) throw new Error("Keyword is required for playlist search");
@@ -630,6 +636,26 @@ function ChannelSearchTab() {
         const data = await apiGet("search-playlists", params);
         setPlaylistResults(data.playlists);
       }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Pages forward/backward through channel search results using YouTube's
+  // own nextPageToken/prevPageToken (only meaningful when maxResults ≤ 50,
+  // i.e. a single search page — see /api/search-channels).
+  const goToChannelPage = async (pageToken) => {
+    if (!pageToken || loading) return;
+    setError("");
+    setLoading(true);
+    try {
+      const params = { keyword: chKeyword.trim(), maxResults, pageToken };
+      const data = await apiGet("search-channels", params);
+      setChannelResults(data.channels);
+      setChannelNextToken(data.nextPageToken || null);
+      setChannelPrevToken(data.prevPageToken || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -955,6 +981,28 @@ function ChannelSearchTab() {
           {channelResults.map((ch) => (
             <ChannelResultCard key={ch.channelId} ch={ch} />
           ))}
+          {(channelPrevToken || channelNextToken) && (
+            <div className="row" style={{ gap: 12, marginTop: 12 }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!channelPrevToken || loading}
+                onClick={() => goToChannelPage(channelPrevToken)}
+              >
+                {loading && <Spinner />}
+                Previous Page
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!channelNextToken || loading}
+                onClick={() => goToChannelPage(channelNextToken)}
+              >
+                {loading && <Spinner />}
+                Next Page
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -1196,6 +1244,8 @@ function ChannelTab({ active = true }) {
   const [latestVideos, setLatestVideos] = useState(null);
   const [latestLoading, setLatestLoading] = useState(false);
   const [latestError, setLatestError] = useState("");
+  const [latestNextToken, setLatestNextToken] = useState(null);
+  const [latestPrevToken, setLatestPrevToken] = useState(null);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1204,6 +1254,8 @@ function ChannelTab({ active = true }) {
     setLoading(true);
     setLatestVideos(null);
     setLatestError("");
+    setLatestNextToken(null);
+    setLatestPrevToken(null);
     try {
       const data = await apiGet("channel", { q: input });
       setChannel(data);
@@ -1223,18 +1275,21 @@ function ChannelTab({ active = true }) {
     setLatestVideos(null);
     setLatestError("");
     setLatestCount(10);
+    setLatestNextToken(null);
+    setLatestPrevToken(null);
   };
 
-  const fetchLatestVideos = async () => {
+  const fetchLatestVideos = async (pageToken) => {
     if (!channel?.channelId || latestLoading) return;
     setLatestError("");
     setLatestLoading(true);
     try {
-      const data = await apiGet("channel-latest-videos", {
-        channelId: channel.channelId,
-        count: latestCount,
-      });
+      const params = { channelId: channel.channelId, count: latestCount };
+      if (pageToken) params.pageToken = pageToken;
+      const data = await apiGet("channel-latest-videos", params);
       setLatestVideos(data.videos || []);
+      setLatestNextToken(data.nextPageToken || null);
+      setLatestPrevToken(data.prevPageToken || null);
     } catch (err) {
       setLatestError(err.message);
     } finally {
@@ -1401,7 +1456,12 @@ function ChannelTab({ active = true }) {
                       min={5}
                       max={50}
                       value={latestCount}
-                      onChange={(e) => setLatestCount(e.target.value)}
+                      onChange={(e) => {
+                        setLatestCount(e.target.value);
+                        setLatestVideos(null);
+                        setLatestNextToken(null);
+                        setLatestPrevToken(null);
+                      }}
                     />
                   </div>
                   <div className="row" style={{ gap: 12, marginBottom: 14 }}>
@@ -1414,7 +1474,7 @@ function ChannelTab({ active = true }) {
                         Number(latestCount) < 5 ||
                         Number(latestCount) > 50
                       }
-                      onClick={fetchLatestVideos}
+                      onClick={() => fetchLatestVideos()}
                     >
                       {latestLoading && <Spinner />}
                       Fetch Latest Videos
@@ -1431,6 +1491,28 @@ function ChannelTab({ active = true }) {
                         <VideoCard key={v.videoId} v={v} />
                       ))}
                     </div>
+                    {(latestPrevToken || latestNextToken) && (
+                      <div className="row" style={{ gap: 12, marginTop: 12 }}>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={!latestPrevToken || latestLoading}
+                          onClick={() => fetchLatestVideos(latestPrevToken)}
+                        >
+                          {latestLoading && <Spinner />}
+                          Previous Page
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={!latestNextToken || latestLoading}
+                          onClick={() => fetchLatestVideos(latestNextToken)}
+                        >
+                          {latestLoading && <Spinner />}
+                          Next Page
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -1898,9 +1980,28 @@ function PlaylistTab({ active = true }) {
     return filterVideosByDateRange(byTitle, startDate, endDate);
   })();
 
+  const loadPlaylist = async (sort, pageToken) => {
+    if (loading) return;
+    setError("");
+    setLoading(true);
+    try {
+      const params = { q: input, sort, maxResults: 50 };
+      if (pageToken) params.pageToken = pageToken;
+      const result = await apiGet("playlist", params);
+      setPlaylistInfo(result.playlistInfo || null);
+      setPlaylistVideos((prev) => (pageToken ? [...prev, ...(result.videos || [])] : (result.videos || [])));
+      setNextPageToken(result.nextPageToken || null);
+      setHasMorePages(Boolean(result.nextPageToken));
+      setTotalVideoCount(result.count ?? (result.videos || []).length);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
-    setError("");
     setPlaylistInfo(null);
     setPlaylistVideos([]);
     setNextPageToken(null);
@@ -1909,18 +2010,20 @@ function PlaylistTab({ active = true }) {
     setTitleSearch("");
     setStartDate("");
     setEndDate("");
-    setLoading(true);
-    try {
-      const result = await apiGet("playlist", { q: input, sort: sortOption, maxResults: 50 });
-      setPlaylistInfo(result.playlistInfo || null);
-      setPlaylistVideos(result.videos || []);
-      setNextPageToken(result.nextPageToken || null);
-      setHasMorePages(Boolean(result.nextPageToken));
-      setTotalVideoCount(result.count ?? (result.videos || []).length);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    await loadPlaylist(sortOption);
+  };
+
+  // Changing the sort dropdown used to require clicking "Fetch Playlist"
+  // again to take effect — this re-fetches immediately instead. It's cheap
+  // even for large playlists thanks to server-side caching (see /api/playlist),
+  // and resets to the first page since item positions shift with a new sort.
+  const handleSortChange = (newSort) => {
+    setSortOption(newSort);
+    if (playlistInfo) {
+      setPlaylistVideos([]);
+      setNextPageToken(null);
+      setHasMorePages(false);
+      loadPlaylist(newSort);
     }
   };
 
@@ -1952,7 +2055,7 @@ function PlaylistTab({ active = true }) {
         </div>
         <div className="field">
           <label>Sort by</label>
-          <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
+          <select value={sortOption} onChange={(e) => handleSortChange(e.target.value)}>
             <option value="date-asc">Published at (oldest first)</option>
             <option value="date-desc">Published at (newest first)</option>
             <option value="title-asc">Title (A → Z)</option>
@@ -2046,21 +2149,7 @@ function PlaylistTab({ active = true }) {
                 <button
                   type="button"
                   className="secondary"
-                  onClick={async () => {
-                    if (!nextPageToken || loading) return;
-                    setLoading(true);
-                    try {
-                      const res = await apiGet("playlist", { q: input, sort: sortOption, maxResults: 50, pageToken: nextPageToken });
-                      setPlaylistVideos((p) => [...p, ...(res.videos || [])]);
-                      setNextPageToken(res.nextPageToken || null);
-                      setHasMorePages(Boolean(res.nextPageToken));
-                      if (res.count != null) setTotalVideoCount(res.count);
-                    } catch (err) {
-                      setError(err.message);
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
+                  onClick={() => loadPlaylist(sortOption, nextPageToken)}
                   disabled={loading}
                 >
                   {loading ? "Loading..." : "View more videos"}
