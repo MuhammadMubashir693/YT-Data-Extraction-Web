@@ -399,7 +399,7 @@ app.get("/api/channel", async (req, res) => {
       return res.status(400).json({ error: "Could not parse a valid channel ID from the input." });
     }
     const data = await ytFetch("channels", {
-      part: "snippet,brandingSettings,statistics",
+      part: "snippet,brandingSettings,statistics,contentDetails",
       id: chId,
     });
     if (!data.items?.length) {
@@ -409,6 +409,8 @@ app.get("/api/channel", async (req, res) => {
     const sn = ch.snippet;
     const bs = ch.brandingSettings || {};
     const st = ch.statistics || {};
+    const cd = ch.contentDetails || {};
+    const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
     const thumb = sn.thumbnails || {};
     const thumbUrl =
       thumb.high?.url ||
@@ -453,6 +455,25 @@ app.get("/api/channel", async (req, res) => {
       playlistPageToken = playlistResp.nextPageToken;
     } while (playlistPageToken);
 
+    // The channel's uploads playlist (contentDetails.relatedPlaylists.uploads) is
+    // never returned by playlists.list?channelId=..., since it's a synthetic
+    // playlist rather than a user-created one. Add it in ourselves so it shows
+    // up alongside the channel's other playlists — its videos can be viewed the
+    // same way as any other playlist, via GET /api/playlist?q=<uploadsPlaylistId>.
+    if (uploadsPlaylistId && !playlists.some((p) => p.playlistId === uploadsPlaylistId)) {
+      const rawCount = st.videoCount;
+      playlists.unshift({
+        playlistId: uploadsPlaylistId,
+        playlistUrl: `https://www.youtube.com/playlist?list=${uploadsPlaylistId}`,
+        title: "Uploads",
+        channelId: ch.id,
+        publishedAt: fmtDatetime(sn.publishedAt),
+        publishedAtRaw: sn.publishedAt || null,
+        videoCount: rawCount ?? "N/A",
+        videoCountRaw: rawCount != null ? Number(rawCount) : null,
+      });
+    }
+
     res.json({
       channelId: ch.id,
       title: sn.title,
@@ -465,6 +486,7 @@ app.get("/api/channel", async (req, res) => {
       videoCount: st.videoCount ?? "N/A",
       subscriberCount: st.subscriberCount ?? "N/A",
       viewCount: st.viewCount ?? "N/A",
+      uploadsPlaylistId,
       playlists,
     });
   } catch (err) {
@@ -698,6 +720,35 @@ app.get("/api/playlist", async (req, res) => {
         publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
         description: (playlist.snippet?.description || "").trim(),
       };
+    } else {
+      // "Special" playlists (channel uploads = UU, liked videos = LL, legacy
+      // favorites = FL, watch later = WL) are never returned by playlists.list,
+      // even by ID — but their ID encodes the owning channel's ID (swap the
+      // 2-letter prefix for "UC"), so we can still show meaningful details by
+      // looking up that channel instead. playlistItems.list below works fine
+      // for these regardless.
+      const SPECIAL_PLAYLIST_LABELS = { UU: "Uploads", LL: "Liked videos", FL: "Favorites", WL: "Watch later" };
+      const prefix = playlistId.slice(0, 2).toUpperCase();
+      const label = SPECIAL_PLAYLIST_LABELS[prefix];
+      if (label) {
+        try {
+          const derivedChannelId = `UC${playlistId.slice(2)}`;
+          const chResp = await ytFetch("channels", { part: "snippet", id: derivedChannelId });
+          const ch = chResp.items?.[0];
+          if (ch) {
+            playlistInfo = {
+              playlistId,
+              title: `${ch.snippet.title} – ${label}`,
+              channelId: ch.id,
+              channelTitle: ch.snippet.title,
+              publishedAt: fmtDatetime(ch.snippet.publishedAt),
+              description: (ch.snippet.description || "").trim(),
+            };
+          }
+        } catch {
+          // Non-fatal — the video listing below still works without playlistInfo.
+        }
+      }
     }
 
     let videoIds = [];

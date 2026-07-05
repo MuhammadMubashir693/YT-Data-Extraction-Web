@@ -93,7 +93,9 @@ export function parseCommentId(text) {
 
 export function parsePlaylistId(text) {
   text = (text || "").trim();
-  if (/^[A-Za-z0-9_-]{13,}$/.test(text) && text.startsWith("PL")) return text;
+  // PL = regular playlist, UU = channel uploads, LL = liked videos,
+  // FL = favorites (legacy), WL = watch later, RD = mix/radio
+  if (/^[A-Za-z0-9_-]{13,}$/.test(text) && /^(PL|UU|LL|FL|WL|RD)/.test(text)) return text;
   try {
     const url = new URL(text);
     const list = url.searchParams.get("list");

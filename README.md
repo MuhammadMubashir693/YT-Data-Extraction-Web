@@ -137,7 +137,7 @@ For a full API reference, see `backend/API_DOCUMENTATION.md`.
   - *Channels* — search by channel name only (channel description is not matched).
   - *Playlists* — search with a single keyword (matched against playlist title and channel title) or with separate per-field keywords for playlist title and channel title.
 - **Manage Channels** — add, update, and delete saved channels stored in MongoDB for use in Search Videos.
-- **Channel Details** — fetch channel metadata (subscriber count, view count, video count, country, description, banner, avatar) and its public playlists with sort options.
+- **Channel Details** — fetch channel metadata (subscriber count, view count, video count, country, description, banner, avatar) and its playlists (including an **"Uploads"** entry representing the channel's full uploads playlist) with sort options. Paste any playlist's ID/URL — including the Uploads one — into the **Playlist Details** tab to browse its videos with search-by-title, sorting, infinite scroll, and export, exactly like any other playlist.
 - **Comment Details** — fetch a single comment by ID or YouTube URL with `lc=` parameter.
 - **Comments Section** — fetch comment threads and paginated replies for a video, with keyword or date range filtering and multiple sort options.
 - **Playlist Details** — fetch playlist metadata and its videos with sort options.
@@ -158,6 +158,14 @@ Every tab with results to show offers JSON, XML, CSV, and TXT export buttons tha
 - Single-item tabs (Video Details, Video Player, Channel Details, Comment Details, Playlist Details) export the one fetched record.
 - Search/list tabs (Search, Comments Section) export the full list of currently loaded results, including any comment replies that have been expanded/loaded so far.
 - **Manage Channels** shows export buttons only after the saved-channel list has successfully loaded from MongoDB and is non-empty; it stays hidden if MongoDB is unreachable or there are no saved channels yet.
+
+**Video descriptions**
+
+Video descriptions automatically hyperlink:
+
+- URLs (`https://...`, `www...`)
+- `#hashtags` (linking to the YouTube hashtag page)
+- Timestamps such as `1:23` or `1:02:03` (linking to that point in the video)
 
 **Notes & caveats**
 

@@ -25,7 +25,7 @@ export default function VideoCard({ v }) {
         </div>
         {v.description && (
           <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
-            <LinkifiedText text={v.description} />
+            <LinkifiedText text={v.description} videoId={v.videoId} />
           </div>
         )}
       </div>

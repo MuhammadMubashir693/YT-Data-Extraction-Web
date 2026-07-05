@@ -243,17 +243,17 @@ Example response:
 {
   "videoId": "dQw4w9WgXcQ",
   "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  "title": "Rick Astley - Never Gonna Give You Up (Video)",
+  "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
   "channelId": "UCuAXFkgsw1L7xaCfnd5JJOw",
   "channelTitle": "Rick Astley",
-  "uploadDate": "Wednesday, December 12, 2007 04:34:00 UTC",
+  "uploadDate": "Sunday, October 25, 2009 at 06:57:33 UTC",
   "duration": "3 minutes 33 seconds",
   "likes": "1234567",
   "views": "1012345678",
   "comments": "456789",
   "thumbnail": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
   "description": "The official video for “Never Gonna Give You Up” by Rick Astley.",
-  "publishedAtRaw": "2007-10-24T06:57:33Z"
+  "publishedAtRaw": "2009-10-25T06:57:33Z"
 }
 ```
 
@@ -268,7 +268,7 @@ Errors:
 
 ### GET `/api/channel`
 
-Description: Fetch channel profile details and public playlists.
+Description: Fetch channel profile details and playlists (including the channel's uploads playlist).
 
 Query parameters:
 
@@ -295,7 +295,16 @@ Example response:
   "videoCount": "233",
   "subscriberCount": "8,100,000",
   "viewCount": "760,000,000",
+  "uploadsPlaylistId": "UUHnyfMqiRRG1u-2MsSQLbXA",
   "playlists": [
+    {
+      "playlistId": "UUHnyfMqiRRG1u-2MsSQLbXA",
+      "playlistUrl": "https://www.youtube.com/playlist?list=UUHnyfMqiRRG1u-2MsSQLbXA",
+      "title": "Uploads",
+      "channelId": "UCHnyfMqiRRG1u-2MsSQLbXA",
+      "publishedAt": "Thursday, August 19, 2010 02:00:00 UTC",
+      "videoCount": 233
+    },
     {
       "playlistId": "PLy6E4A7J_XfN2YQG2hO2pUj7xv",
       "playlistUrl": "https://www.youtube.com/playlist?list=PLy6E4A7J_XfN2YQG2hO2pUj7xv",
@@ -315,7 +324,8 @@ Response:
   - `channelId`, `title`, `description`, `createdAt`
   - `customUrl`, `country`, `thumbnail`, `banner`
   - `videoCount`, `subscriberCount`, `viewCount`
-  - `playlists`: array of playlist objects
+  - `uploadsPlaylistId`: the channel's uploads playlist ID (from `contentDetails.relatedPlaylists.uploads`), or `null` if unavailable. This same ID is also included as the first entry of `playlists` (titled `"Uploads"`).
+  - `playlists`: array of playlist objects, always led by the channel's uploads playlist (if available) followed by its regular public playlists
     - `playlistId`, `playlistUrl`, `title`, `channelId`, `publishedAt`, `videoCount`
 
 Errors:
@@ -326,6 +336,8 @@ Errors:
 Notes:
 
 - Handles channel URLs, handles starting with `@`, legacy usernames, and raw `UC...` IDs.
+- The uploads playlist is never returned by `playlists.list?channelId=...` (it's a synthetic playlist, not a user-created one), so the backend adds it in manually using the channel's own snippet/statistics.
+- `uploadsPlaylistId` starts with `UU` rather than `PL`; `GET /api/playlist` and its `q` parser (`parsePlaylistId`) accept `UU`-prefixed IDs (as well as `LL`, `FL`, `WL`, `RD`) in addition to regular `PL` playlists, so this playlist can be fetched the same way as any other.
 
 ---
 
@@ -872,6 +884,8 @@ Errors:
 Notes:
 
 - The endpoint loads the full playlist item list using YouTube pagination and then fetches enriched video metadata in batches.
+- `q` accepts any playlist-style ID: regular playlists (`PL`), a channel's uploads playlist (`UU`), liked videos (`LL`), legacy favorites (`FL`), watch later (`WL`), and mixes/radios (`RD`) — so a channel's `uploadsPlaylistId` (from `GET /api/channel`) can be passed here directly to list all of a channel's uploads.
+- `playlists.list` never returns metadata for "special" playlists like the uploads playlist, even when queried directly by ID. For these, `playlistInfo` is instead derived from the owning channel (whose ID is encoded in the playlist ID, e.g. `UUxxxx` → channel `UCxxxx`), giving a title like `"Channel Name – Uploads"`. The video listing itself (`playlistItems.list`) works normally regardless.
 
 ---
 
