@@ -561,6 +561,62 @@ app.get("/api/channel", async (req, res) => {
       bs.image?.bannerMobileLowImageUrl ||
       null;
 
+    // Note: public playlists are intentionally NOT fetched here. Listing a
+    // channel's playlists can require many sequential playlists.list calls
+    // for channels with lots of playlists, so that work only happens when
+    // the user explicitly requests it via GET /api/channel-playlists.
+    res.json({
+      channelId: ch.id,
+      title: sn.title,
+      description: (sn.description || "").trim(),
+      createdAt: fmtDatetime(sn.publishedAt),
+      customUrl: sn.customUrl || "N/A",
+      country: fmtCountry(sn.country),
+      thumbnail: thumbUrl,
+      banner,
+      videoCount: st.videoCount ?? "N/A",
+      subscriberCount: st.subscriberCount ?? "N/A",
+      viewCount: st.viewCount ?? "N/A",
+      uploadsPlaylistId,
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Part 3c – Channel's public playlists (fetched on demand) ───────────────
+//
+// Split out from /api/channel so that a channel lookup never implicitly pages
+// through every playlists.list result — that only happens when the user
+// clicks "Fetch Playlists".
+app.get("/api/channel-playlists", async (req, res) => {
+  try {
+    const channelId = (req.query.channelId || "").trim();
+    if (!/^UC[A-Za-z0-9_-]{22}$/.test(channelId)) {
+      return res.status(400).json({ error: "A valid channelId is required." });
+    }
+
+    const data = await ytFetch("channels", {
+      part: "snippet,statistics,contentDetails",
+      id: channelId,
+    });
+    if (!data.items?.length) {
+      return res.status(404).json({ error: "No channel found with that ID." });
+    }
+    const ch = data.items[0];
+    const sn = ch.snippet;
+    const st = ch.statistics || {};
+    const cd = ch.contentDetails || {};
+    const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
+    const thumb = sn.thumbnails || {};
+    const thumbUrl =
+      thumb.high?.url ||
+      thumb.maxres?.url ||
+      thumb.standard?.url ||
+      thumb.medium?.url ||
+      thumb.default?.url ||
+      null;
+
     const playlists = [];
     let playlistPageToken;
     let playlistPageNumber = 0;
@@ -620,21 +676,7 @@ app.get("/api/channel", async (req, res) => {
       });
     }
 
-    res.json({
-      channelId: ch.id,
-      title: sn.title,
-      description: (sn.description || "").trim(),
-      createdAt: fmtDatetime(sn.publishedAt),
-      customUrl: sn.customUrl || "N/A",
-      country: fmtCountry(sn.country),
-      thumbnail: thumbUrl,
-      banner,
-      videoCount: st.videoCount ?? "N/A",
-      subscriberCount: st.subscriberCount ?? "N/A",
-      viewCount: st.viewCount ?? "N/A",
-      uploadsPlaylistId,
-      playlists,
-    });
+    res.json({ channelId: ch.id, playlists });
   } catch (err) {
     handleError(res, err);
   }

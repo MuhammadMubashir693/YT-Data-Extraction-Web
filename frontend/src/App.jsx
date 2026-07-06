@@ -1286,6 +1286,9 @@ function ChannelTab({ active = true }) {
   const [plTitleSearch, setPlTitleSearch] = useState("");
   const [plStartDate, setPlStartDate] = useState("");
   const [plEndDate, setPlEndDate] = useState("");
+  const [playlists, setPlaylists] = useState(null);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [playlistsError, setPlaylistsError] = useState("");
 
   const [latestCount, setLatestCount] = useState(10);
   const [latestVideos, setLatestVideos] = useState(null);
@@ -1303,6 +1306,8 @@ function ChannelTab({ active = true }) {
     setLatestError("");
     setLatestNextToken(null);
     setLatestPrevToken(null);
+    setPlaylists(null);
+    setPlaylistsError("");
     try {
       const data = await apiGet("channel", { q: input });
       setChannel(data);
@@ -1324,6 +1329,27 @@ function ChannelTab({ active = true }) {
     setLatestCount(10);
     setLatestNextToken(null);
     setLatestPrevToken(null);
+    setPlaylists(null);
+    setPlaylistsError("");
+    setPlaylistsLoading(false);
+  };
+
+  const fetchPlaylists = async () => {
+    if (!channel?.channelId || playlistsLoading) return;
+    setPlaylistsError("");
+    setPlaylistsLoading(true);
+    try {
+      const data = await apiGet("channel-playlists", { channelId: channel.channelId });
+      setPlaylists(data.playlists || []);
+      setPlaylistSort("date-desc");
+      setPlTitleSearch("");
+      setPlStartDate("");
+      setPlEndDate("");
+    } catch (err) {
+      setPlaylistsError(err.message);
+    } finally {
+      setPlaylistsLoading(false);
+    }
   };
 
   const fetchLatestVideos = async (pageToken) => {
@@ -1345,8 +1371,8 @@ function ChannelTab({ active = true }) {
   };
 
   const sortedPlaylists = (() => {
-    if (!channel?.playlists?.length) return [];
-    const items = [...channel.playlists];
+    if (!playlists?.length) return [];
+    const items = [...playlists];
     const direction = playlistSort.endsWith("-asc") ? 1 : -1;
     switch (playlistSort) {
       case "date-asc":
@@ -1436,9 +1462,31 @@ function ChannelTab({ active = true }) {
                   <LinkifiedText text={channel.description} />
                 </div>
               )}
-              {channel.playlists?.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Public playlists</h3>
+                {!playlists && (
+                  <>
+                    <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
+                      Fetching a channel's playlists can take multiple API calls for channels with lots of playlists, so it's separate from the main channel lookup.
+                    </p>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={playlistsLoading}
+                      onClick={fetchPlaylists}
+                    >
+                      {playlistsLoading && <Spinner />}
+                      Fetch Playlists
+                    </button>
+                    {playlistsError && <ErrorBox message={playlistsError} />}
+                  </>
+                )}
+                {playlists?.length === 0 && (
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>No public playlists found for this channel.</p>
+                )}
+              </div>
+              {playlists?.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Public playlists</h3>
                   <div className="field" style={{ maxWidth: 260 }}>
                     <label>Sort by</label>
                     <select value={playlistSort} onChange={(e) => setPlaylistSort(e.target.value)}>
