@@ -224,7 +224,7 @@ const TABS = [
   { id: "manageChannels", label: "Manage Channels" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
-  { id: "comments", label: "Comments Section" },
+  { id: "comments", label: "Comment Threads" },
   { id: "playlist", label: "Playlist Details" },
 ];
 
@@ -1497,15 +1497,14 @@ function ChannelTab({ active = true }) {
               <div style={{ marginTop: 16 }}>
                 <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Latest Uploads</h3>
                 <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
-                  Pull the channel's most recent videos directly from its uploads playlist
-                  (a lightweight lookup — it doesn't fetch the whole playlist).
+                  Pull n latest videos from a channel.
                 </p>
                 <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
                   <div className="field" style={{ maxWidth: 160 }}>
-                    <label>Number of videos (5-50)</label>
+                    <label>Number of videos (1-50)</label>
                     <input
                       type="number"
-                      min={5}
+                      min={1}
                       max={50}
                       value={latestCount}
                       onChange={(e) => {
@@ -1523,7 +1522,7 @@ function ChannelTab({ active = true }) {
                       disabled={
                         latestLoading ||
                         !Number.isInteger(Number(latestCount)) ||
-                        Number(latestCount) < 5 ||
+                        Number(latestCount) < 1 ||
                         Number(latestCount) > 50
                       }
                       onClick={() => fetchLatestVideos()}
@@ -1578,7 +1577,7 @@ function ChannelTab({ active = true }) {
 
 // ── Shared comment rendering ─────────────────────────────────────────────
 //
-// Used by the Comment Details tab (single comment), Comments Section
+// Used by the Comment Details tab (single comment), Comment Threads
 // (top-level threads), and their replies, so all three look and order
 // their fields identically: ID, Channel ID, Channel Name (hyperlinked to
 // the commenter's channel), Published, Updated (only if different from
@@ -1687,7 +1686,7 @@ function CommentTab() {
   );
 }
 
-// ── Tab: Comments Section ────────────────────────────────────────────────
+// ── Tab: Comment Threads ────────────────────────────────────────────────
 
 function CommentsTab({ active = true }) {
   const [input, setInput] = useState("");

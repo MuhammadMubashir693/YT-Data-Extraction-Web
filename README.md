@@ -139,7 +139,7 @@ For a full API reference, see `backend/API_DOCUMENTATION.md`.
 - **Manage Channels** — add, update, and delete saved channels stored in MongoDB for use in Search Videos.
 - **Channel Details** — fetch channel metadata (subscriber count, view count, video count, country, description, banner, avatar) and its playlists (including an **"Uploads"** entry representing the channel's full uploads playlist) with sort options. Paste any playlist's ID/URL — including the Uploads one — into the **Playlist Details** tab to browse its videos with search-by-title, sorting, infinite scroll, and export, exactly like any other playlist.
 - **Comment Details** — fetch a single comment by ID or YouTube URL with `lc=` parameter.
-- **Comments Section** — fetch comment threads and paginated replies for a video, with keyword or date range filtering and multiple sort options.
+- **Comment Threads** — fetch comment threads and paginated replies for a video, with keyword or date range filtering and multiple sort options.
 - **Playlist Details** — fetch playlist metadata and its videos with sort options, plus a live client-side title search and start/end date range filter (auto-swapped if entered in reverse order) that combine with the sort — no extra API calls, since the full playlist is already loaded.
 
 **Input formats supported**
@@ -156,7 +156,7 @@ All ID/URL inputs accept multiple formats:
 Every tab with results to show offers JSON, XML, CSV, and TXT export buttons that download the current result set as a file:
 
 - Single-item tabs (Video Details, Video Player, Channel Details, Comment Details, Playlist Details) export the one fetched record.
-- Search/list tabs (Search, Comments Section) export the full list of currently loaded results, including any comment replies that have been expanded/loaded so far.
+- Search/list tabs (Search, Comment Threads) export the full list of currently loaded results, including any comment replies that have been expanded/loaded so far.
 - **Manage Channels** shows export buttons only after the saved-channel list has successfully loaded from MongoDB and is non-empty; it stays hidden if MongoDB is unreachable or there are no saved channels yet.
 
 **Video descriptions**

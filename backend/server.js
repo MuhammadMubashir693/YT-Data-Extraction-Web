@@ -472,8 +472,8 @@ app.get("/api/channel-latest-videos", async (req, res) => {
     }
 
     const count = parseInt(req.query.count, 10);
-    if (!Number.isInteger(count) || count < 5 || count > 50) {
-      return res.status(400).json({ error: "count must be an integer between 5 and 50 (inclusive)." });
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      return res.status(400).json({ error: "count must be an integer between 1 and 50 (inclusive)." });
     }
 
     const chResp = await ytFetch("channels", { part: "contentDetails", id: channelId });
