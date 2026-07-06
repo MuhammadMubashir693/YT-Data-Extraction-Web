@@ -43,6 +43,24 @@ function safeNum(val) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function getDurationSeconds(video) {
+  if (!video) return null;
+  if (video.duration === "N/A") return null;
+  const n = Number(video.durationSeconds);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sortByDuration(items, direction) {
+  return items.sort((a, b) => {
+    const aSeconds = getDurationSeconds(a);
+    const bSeconds = getDurationSeconds(b);
+    if (aSeconds === null && bSeconds === null) return 0;
+    if (aSeconds === null) return 1;
+    if (bSeconds === null) return -1;
+    return (aSeconds - bSeconds) * direction;
+  });
+}
+
 function sortVideosClient(videos, sort) {
   if (!videos?.length) return videos || [];
   const items = [...videos];
@@ -74,6 +92,9 @@ function sortVideosClient(videos, sort) {
       return items.sort((a, b) =>
         a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }) * direction
       );
+    case "duration-asc":
+    case "duration-desc":
+      return sortByDuration(items, direction);
     default:
       return items;
   }
@@ -106,6 +127,57 @@ function filterVideosByDateRange(videos, startDate, endDate) {
     if (endDate && day > endDate) return false;
     return true;
   });
+}
+
+// Client-side comment thread filtering (by keyword across thread + loaded
+// reply text, and by published date range) — mirrors filterVideosByDateRange
+// but for comment threads, so search/date filters apply live without
+// re-fetching from the server.
+function filterThreadsClient(threads, keyword, startDate, endDate) {
+  if (!threads?.length) return threads || [];
+  let items = threads;
+  const kw = (keyword || "").trim().toLowerCase();
+  if (kw) {
+    items = items.filter((t) => {
+      const threadText = `${t.textDisplay} ${t.textOriginal}`.toLowerCase();
+      const replyText = (t.replies || [])
+        .map((r) => `${r.textDisplay} ${r.textOriginal}`.toLowerCase())
+        .join(" ");
+      return threadText.includes(kw) || replyText.includes(kw);
+    });
+  }
+  if (startDate || endDate) {
+    items = items.filter((t) => {
+      if (!t.publishedAtRaw) return false;
+      const day = t.publishedAtRaw.slice(0, 10);
+      if (startDate && day < startDate) return false;
+      if (endDate && day > endDate) return false;
+      return true;
+    });
+  }
+  return items;
+}
+
+// Client-side comment thread sorting. "top" preserves whatever order the
+// threads were fetched in (relevance, from the API) since that ranking
+// can't be reconstructed locally; the rest can be computed live from
+// fields already present on each thread, with no refetch needed.
+function sortThreadsClient(threads, sort) {
+  if (!threads?.length) return threads || [];
+  const items = [...threads];
+  switch (sort) {
+    case "latest":
+      return items.sort((a, b) => new Date(b.publishedAtRaw) - new Date(a.publishedAtRaw));
+    case "earliest":
+      return items.sort((a, b) => new Date(a.publishedAtRaw) - new Date(b.publishedAtRaw));
+    case "likes-desc":
+      return items.sort((a, b) => Number(b.likeCount) - Number(a.likeCount));
+    case "likes-asc":
+      return items.sort((a, b) => Number(a.likeCount) - Number(b.likeCount));
+    case "top":
+    default:
+      return items;
+  }
 }
 
 function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, loadingLabel = "Loading more...", active = true, manual = false }) {
@@ -473,7 +545,6 @@ function ChannelSearchTab() {
   const [channelId, setChannelId] = useState("");
   const [useCustomChannel, setUseCustomChannel] = useState(false);
   const [customChannelId, setCustomChannelId] = useState("");
-  const [mode, setMode] = useState("keyword");
   const [keyword, setKeyword] = useState("");
   const [usePerFieldKeywords, setUsePerFieldKeywords] = useState(false);
   const [keywordTitle, setKeywordTitle] = useState("");
@@ -545,7 +616,6 @@ function ChannelSearchTab() {
     setSearchType("channel");
     setUseCustomChannel(false);
     setCustomChannelId("");
-    setMode("keyword");
     setKeyword("");
     setUsePerFieldKeywords(false);
     setKeywordTitle("");
@@ -575,20 +645,15 @@ function ChannelSearchTab() {
         const isChannelSearch = searchType === "channel";
         if (isChannelSearch) {
           const resolvedChannelId = useCustomChannel ? customChannelId.trim() : channelId;
-          const params = { channelId: resolvedChannelId, mode, matchMode };
-          if (mode === "keyword") {
-            if (usePerFieldKeywords) {
-              if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
-              if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
-              if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
-            } else {
-              params.keyword = keyword;
-            }
-            if (useDateRange) {
-              params.startDate = startDate;
-              params.endDate = endDate;
-            }
+          const params = { channelId: resolvedChannelId, mode: "keyword", matchMode };
+          if (usePerFieldKeywords) {
+            if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
+            if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
+            if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
           } else {
+            params.keyword = keyword;
+          }
+          if (useDateRange) {
             params.startDate = startDate;
             params.endDate = endDate;
           }
@@ -599,8 +664,11 @@ function ChannelSearchTab() {
           setVideos(data.videos);
         } else {
           const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
-          if (!usePerFieldKeywords && !keyword.trim()) throw new Error("Keyword is required for general video search");
-          if (usePerFieldKeywords && !hasPerField) throw new Error("At least one per-field keyword is required");
+          const hasKeyword = usePerFieldKeywords ? hasPerField : Boolean(keyword.trim());
+          const hasDateRange = useDateRange && Boolean(startDate || endDate);
+          if (!hasKeyword && !hasDateRange && !useDuration) {
+            throw new Error("Provide a keyword, date range, or duration type to search");
+          }
           const params = { sort: sortOption, maxResults, matchMode };
           if (usePerFieldKeywords) {
             if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
@@ -675,14 +743,12 @@ function ChannelSearchTab() {
     if (category === "video") {
       if (isChannelSearch && !useCustomChannel && !channelId) return true;
       if (isChannelSearch && useCustomChannel && !customChannelId.trim()) return true;
-      if (isChannelSearch && mode === "keyword") {
-        if (usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) return true;
-        if (!usePerFieldKeywords && !keyword.trim()) return true;
-      }
-      if (!isChannelSearch) {
-        if (usePerFieldKeywords && !keywordTitle.trim() && !keywordDescription.trim() && !keywordChannel.trim()) return true;
-        if (!usePerFieldKeywords && !keyword.trim()) return true;
-      }
+      const hasKeyword = usePerFieldKeywords
+        ? Boolean(keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim())
+        : Boolean(keyword.trim());
+      const hasDateRange = useDateRange && Boolean(startDate || endDate);
+      const hasDurationFilter = useDuration;
+      if (!hasKeyword && !hasDateRange && !hasDurationFilter) return true;
     } else if (category === "channel") {
       if (!chKeyword.trim()) return true;
     } else {
@@ -741,6 +807,8 @@ function ChannelSearchTab() {
           <option value="rating-asc">Rating (lowest first)</option>
           <option value="title-asc">Title (A → Z)</option>
           <option value="title-desc">Title (Z → A)</option>
+          <option value="duration-desc">Duration (longest first)</option>
+          <option value="duration-asc">Duration (shortest first)</option>
         </select>
       </div>
     </>
@@ -807,18 +875,8 @@ function ChannelSearchTab() {
               </div>
             )}
 
+            {/* ── Keyword fields (channel search) ── */}
             {isChannelSearch && (
-              <div className="field">
-                <label>Search mode</label>
-                <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                  <option value="keyword">Keyword</option>
-                  <option value="date">Date range</option>
-                </select>
-              </div>
-            )}
-
-            {/* ── Keyword fields (channel search, keyword mode) ── */}
-            {isChannelSearch && mode === "keyword" && (
               <>
                 {keywordFields}
                 <label className="checkbox-row">
@@ -831,19 +889,8 @@ function ChannelSearchTab() {
             {/* ── Keyword fields (general search) ── */}
             {!isChannelSearch && keywordFields}
 
-            {/* ── Date by mode (channel search, date mode) ── */}
-            {isChannelSearch && mode === "date" && (
-              <div className="field">
-                <label>Sort by</label>
-                <select value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-                  <option value="date-desc">Date (newest first)</option>
-                  <option value="date-asc">Date (oldest first)</option>
-                </select>
-              </div>
-            )}
-
             {/* ── Date range inputs ── */}
-            {((!isChannelSearch) || (isChannelSearch && mode === "date") || (isChannelSearch && mode === "keyword" && useDateRange)) && (
+            {((!isChannelSearch) || (isChannelSearch && useDateRange)) && (
               <div className="row">
                 <div className="field">
                   <label>Start date</label>
@@ -1429,13 +1476,18 @@ function ChannelTab({ active = true }) {
                       loadingLabel="View more playlists"
                       active={active}
                       renderItem={(playlist) => (
-                        <div key={playlist.playlistId} style={{ marginBottom: 10 }}>
-                          <div><b>ID:</b> {playlist.playlistId}</div>
-                          <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
-                          <div><b>Title:</b> {playlist.title}</div>
-                          <div><b>Channel ID:</b> {playlist.channelId}</div>
-                          <div><b>Published at:</b> {playlist.publishedAt}</div>
-                          <div><b>Video count:</b> {fmtCount(playlist.videoCount)}</div>
+                        <div key={playlist.playlistId} className="video-card">
+                          {playlist.thumbnail && (
+                            <ImageWithFallback src={playlist.thumbnail} alt={playlist.title} loading="lazy" />
+                          )}
+                          <div className="body">
+                            <div><b>ID:</b> {playlist.playlistId}</div>
+                            <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
+                            <div><b>Title:</b> {playlist.title}</div>
+                            <div><b>Channel ID:</b> {playlist.channelId}</div>
+                            <div><b>Published at:</b> {playlist.publishedAt}</div>
+                            <div><b>Video count:</b> {fmtCount(playlist.videoCount)}</div>
+                          </div>
                         </div>
                       )}
                     />
@@ -1487,7 +1539,7 @@ function ChannelTab({ active = true }) {
                     <ExportBar data={latestVideos} filenameBase="channel-latest-videos" />
                     <p className="result-count">Video count: {fmtCount(latestVideos.length)}</p>
                     <div>
-                      {latestVideos.map((v) => (
+                      {latestVideos.map(({ description: _desc, ...v }) => (
                         <VideoCard key={v.videoId} v={v} />
                       ))}
                     </div>
@@ -1521,6 +1573,52 @@ function ChannelTab({ active = true }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Shared comment rendering ─────────────────────────────────────────────
+//
+// Used by the Comment Details tab (single comment), Comments Section
+// (top-level threads), and their replies, so all three look and order
+// their fields identically: ID, Channel ID, Channel Name (hyperlinked to
+// the commenter's channel), Published, Updated (only if different from
+// Published), Replies (when applicable), then the comment text.
+function CommentCard({ comment, children }) {
+  const showUpdated = comment.updatedAt && comment.updatedAt !== comment.publishedAt;
+  return (
+    <>
+      <div className="comment-header" style={{ justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 12 }}>
+          {comment.authorProfileImageUrl && (
+            <ImageWithFallback
+              src={comment.authorProfileImageUrl}
+              alt={comment.authorName}
+              className="comment-avatar"
+            />
+          )}
+          <div className="comment-meta-small">
+            <span><b>ID:</b> {comment.commentId}</span>
+            <span><b>Channel ID:</b> {comment.authorChannelId}</span>
+            <span>
+              <b>Channel Name:</b>{" "}
+              {comment.authorChannelUrl ? (
+                <a href={comment.authorChannelUrl} target="_blank" rel="noreferrer">{comment.authorName}</a>
+              ) : (
+                comment.authorName
+              )}
+            </span>
+            <span><b>Published:</b> {comment.publishedAt}</span>
+            {showUpdated && <span><b>Updated:</b> {comment.updatedAt}</span>}
+            {comment.replyCount != null && <span><b>Replies:</b> {comment.replyCount}</span>}
+            {comment.likeCount != null && <span><b>Likes:</b> {fmtCount(comment.likeCount)}</span>}
+          </div>
+        </div>
+      </div>
+      <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
+        <LinkifiedText text={comment.textDisplay} />
+      </div>
+      {children}
+    </>
   );
 }
 
@@ -1580,28 +1678,9 @@ function CommentTab() {
       </form>
       <ErrorBox message={error} />
       {comment && (
-        <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
+        <div className="comment-thread" style={{ marginTop: 16 }}>
           <ExportBar data={comment} filenameBase="comment-details" />
-          <div className="meta-grid">
-            <span><b>Comment ID:</b> {comment.commentId}</span>
-            <span><b>Author:</b> {comment.authorName}</span>
-            <span><b>Author Channel ID:</b> {comment.authorChannelId}</span>
-            <span><b>Likes:</b> {fmtCount(comment.likeCount)}</span>
-            <span><b>Published:</b> {comment.publishedAt}</span>
-            <span><b>Updated:</b> {comment.updatedAt}</span>
-          </div>
-          <div className="comment-author-row" style={{ marginTop: 12 }}>
-            {comment.authorProfileImageUrl && (
-              <ImageWithFallback
-                src={comment.authorProfileImageUrl}
-                alt={comment.authorName}
-                className="comment-avatar"
-              />
-            )}
-            <div className="description" style={{ marginTop: 0, maxHeight: "none" }}>
-              {comment.textDisplay}
-            </div>
-          </div>
+          <CommentCard comment={comment} />
         </div>
       )}
     </div>
@@ -1617,7 +1696,6 @@ function CommentsTab({ active = true }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sort, setSort] = useState("top");
-  const [mode, setMode] = useState("keyword");
   const [keyword, setKeyword] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1628,25 +1706,22 @@ function CommentsTab({ active = true }) {
   const [replyPages, setReplyPages] = useState({});
   // manual "View more" style: do not auto-load on scroll for top-level threads
 
-  const buildBaseParams = () => {
-    const params = { q: input, sort };
-    if (mode === "keyword" && keyword.trim()) {
-      params.keyword = keyword.trim();
-    }
-    if (mode === "date") {
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-    }
-    return params;
-  };
+  // Keyword, date range, and sort are all applied live over whatever threads
+  // are currently loaded — no refetch needed when they change. The API is
+  // always queried in a single consistent order ("top"/relevance) so that
+  // pagination stays stable; switching to another sort just re-orders the
+  // threads already in memory.
+  const displayedThreads = sortThreadsClient(
+    filterThreadsClient(threads, keyword, startDate, endDate),
+    sort
+  );
 
   const fetchCommentsPage = async ({ pageToken } = {}) => {
     setError("");
     setLoading(true);
     try {
-      const params = buildBaseParams();
+      const params = { q: input, sort: "top", maxResults: 50 };
       if (pageToken) params.pageToken = pageToken;
-      params.maxResults = 50;
       const data = await apiGet("comments", params);
       setThreads((prev) => [...prev, ...(data.threads || [])]);
       setCommentCount(data.commentCount ?? null);
@@ -1701,6 +1776,8 @@ function CommentsTab({ active = true }) {
     }));
   };
 
+  const hasFilters = Boolean(keyword.trim() || startDate || endDate);
+
   return (
     <div className="panel">
       <form onSubmit={submit}>
@@ -1714,35 +1791,24 @@ function CommentsTab({ active = true }) {
           />
         </div>
         <div className="field">
-          <label>Search mode</label>
-          <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="keyword">Keyword</option>
-            <option value="date">Date range</option>
-          </select>
+          <label>Search comment text</label>
+          <input
+            type="text"
+            placeholder="Filter loaded comments by keyword"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
         </div>
-        {mode === "keyword" && (
+        <div className="row">
           <div className="field">
-            <label>Keyword</label>
-            <input
-              type="text"
-              placeholder="Search comment text"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
+            <label>Start date</label>
+            <input type="date" value={startDate} onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)} />
           </div>
-        )}
-        {mode === "date" && (
-          <div className="row">
-            <div className="field">
-              <label>Start date</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </div>
-            <div className="field">
-              <label>End date</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            </div>
+          <div className="field">
+            <label>End date</label>
+            <input type="date" value={endDate} onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)} />
           </div>
-        )}
+        </div>
         <div className="field">
           <label>Sort comments</label>
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
@@ -1769,7 +1835,6 @@ function CommentsTab({ active = true }) {
               setHasSearched(false);
               setError("");
               setSort("top");
-              setMode("keyword");
               setKeyword("");
               setStartDate("");
               setEndDate("");
@@ -1786,107 +1851,82 @@ function CommentsTab({ active = true }) {
         <div style={{ marginTop: 16 }}>
           <p className="result-count">
             Comment count: {commentCount != null ? fmtCount(commentCount) : "N/A"}
+            {hasFilters && (
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                {" "}({fmtCount(displayedThreads.length)} shown matching filters)
+              </span>
+            )}
           </p>
           <ExportBar
-            data={threads.map((thread) => ({
+            data={displayedThreads.map((thread) => ({
               ...thread,
               replies: (replyPages[thread.commentId]?.replies ?? thread.replies) || [],
             }))}
             filenameBase="comments"
           />
-          {threads.map((thread) => (
+          {displayedThreads.map((thread) => (
             <div key={thread.commentId} className="comment-thread">
-              <div className="comment-header">
-                {thread.authorProfileImageUrl && (
-                  <ImageWithFallback
-                    src={thread.authorProfileImageUrl}
-                    alt={thread.authorName}
-                    className="comment-avatar"
-                  />
+              <CommentCard comment={thread}>
+                {thread.replyCount > 0 && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ marginTop: 10 }}
+                    onClick={() => toggleReplies(thread.commentId)}
+                  >
+                    {expandedThreads[thread.commentId] ? "Hide replies" : `Show replies (${thread.replyCount})`}
+                  </button>
                 )}
-                <div>
-                  <div className="comment-meta">
-                    <span><b>{thread.authorName}</b></span>
-                    {thread.authorChannelUrl && (
-                      <span>
-                        <a href={thread.authorChannelUrl} target="_blank" rel="noreferrer">
-                          View channel
-                        </a>
-                      </span>
-                    )}
-                    <span>({thread.authorChannelId})</span>
-                  </div>
-                  <div className="comment-meta-small">
-                    <span>ID: {thread.commentId}</span>
-                    <span>Likes: {fmtCount(thread.likeCount)}</span>
-                    <span>Published: {thread.publishedAt}</span>
-                    <span>Updated: {thread.updatedAt}</span>
-                    <span>Replies: {thread.replyCount}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
-                <LinkifiedText text={thread.textDisplay} />
-              </div>
-              {thread.replyCount > 0 && (
-                <button
-                  type="button"
-                  className="secondary"
-                  style={{ marginTop: 10 }}
-                  onClick={() => toggleReplies(thread.commentId)}
-                >
-                  {expandedThreads[thread.commentId] ? "Hide replies" : `Show replies (${thread.replyCount})`}
-                </button>
-              )}
-              {expandedThreads[thread.commentId] && (
-                <RepliesList
-                  thread={thread}
-                  active={active}
-                  replyState={replyPages[thread.commentId] || {
-                    replies: thread.replies || [],
-                    hasMore: thread.replyCount > (thread.replies?.length || 0),
-                    nextPageToken: null,
-                    loading: false,
-                  }}
-                  loadMoreReplies={async () => {
-                    const pageState = replyPages[thread.commentId] || {
+                {expandedThreads[thread.commentId] && (
+                  <RepliesList
+                    thread={thread}
+                    active={active}
+                    replyState={replyPages[thread.commentId] || {
                       replies: thread.replies || [],
                       hasMore: thread.replyCount > (thread.replies?.length || 0),
                       nextPageToken: null,
                       loading: false,
-                    };
-                    if (!pageState.hasMore || pageState.loading) return;
-                    setReplyPages((prev) => ({
-                      ...prev,
-                      [thread.commentId]: { ...pageState, loading: true },
-                    }));
-                    try {
-                      const params = { parentId: thread.commentId };
-                      if (pageState.nextPageToken) params.pageToken = pageState.nextPageToken;
-                      const data = await apiGet("comment-replies", params);
-                      setReplyPages((prev) => {
-                        const current = prev[thread.commentId] || pageState;
-                        const existingIds = new Set(current.replies.map((reply) => reply.commentId));
-                        const newReplies = data.replies.filter((reply) => !existingIds.has(reply.commentId));
-                        return {
-                          ...prev,
-                          [thread.commentId]: {
-                            replies: [...current.replies, ...newReplies],
-                            hasMore: data.hasMore,
-                            nextPageToken: data.nextPageToken,
-                            loading: false,
-                          },
-                        };
-                      });
-                    } catch {
+                    }}
+                    loadMoreReplies={async () => {
+                      const pageState = replyPages[thread.commentId] || {
+                        replies: thread.replies || [],
+                        hasMore: thread.replyCount > (thread.replies?.length || 0),
+                        nextPageToken: null,
+                        loading: false,
+                      };
+                      if (!pageState.hasMore || pageState.loading) return;
                       setReplyPages((prev) => ({
                         ...prev,
-                        [thread.commentId]: { ...pageState, loading: false },
+                        [thread.commentId]: { ...pageState, loading: true },
                       }));
-                    }
-                  }}
-                />
-              )}
+                      try {
+                        const params = { parentId: thread.commentId };
+                        if (pageState.nextPageToken) params.pageToken = pageState.nextPageToken;
+                        const data = await apiGet("comment-replies", params);
+                        setReplyPages((prev) => {
+                          const current = prev[thread.commentId] || pageState;
+                          const existingIds = new Set(current.replies.map((reply) => reply.commentId));
+                          const newReplies = data.replies.filter((reply) => !existingIds.has(reply.commentId));
+                          return {
+                            ...prev,
+                            [thread.commentId]: {
+                              replies: [...current.replies, ...newReplies],
+                              hasMore: data.hasMore,
+                              nextPageToken: data.nextPageToken,
+                              loading: false,
+                            },
+                          };
+                        });
+                      } catch {
+                        setReplyPages((prev) => ({
+                          ...prev,
+                          [thread.commentId]: { ...pageState, loading: false },
+                        }));
+                      }
+                    }}
+                  />
+                )}
+              </CommentCard>
             </div>
           ))}
           {hasMore && (
@@ -1915,37 +1955,7 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
     <div className="replies-list" ref={containerRef}>
       {replyState.replies.map((reply) => (
         <div key={reply.commentId} className="comment-reply">
-          <div className="comment-header">
-            {reply.authorProfileImageUrl && (
-              <ImageWithFallback
-                src={reply.authorProfileImageUrl}
-                alt={reply.authorName}
-                className="comment-avatar"
-              />
-            )}
-            <div>
-              <div className="comment-meta">
-                <span><b>{reply.authorName}</b></span>
-                {reply.authorChannelUrl && (
-                  <span>
-                    <a href={reply.authorChannelUrl} target="_blank" rel="noreferrer">
-                      View channel
-                    </a>
-                  </span>
-                )}
-                <span>({reply.authorChannelId})</span>
-              </div>
-              <div className="comment-meta-small">
-                <span>ID: {reply.commentId}</span>
-                <span>Likes: {fmtCount(reply.likeCount)}</span>
-                <span>Published: {reply.publishedAt}</span>
-                <span>Updated: {reply.updatedAt}</span>
-              </div>
-            </div>
-          </div>
-          <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
-            <LinkifiedText text={reply.textDisplay} />
-          </div>
+          <CommentCard comment={reply} />
         </div>
       ))}
       {replyState.loading && <div className="message-box secondary" style={{ marginTop: 10 }}>Loading replies...</div>}
@@ -2064,6 +2074,8 @@ function PlaylistTab({ active = true }) {
             <option value="viewCount-asc">View count (lowest first)</option>
             <option value="rating-desc">Rating (highest first)</option>
             <option value="rating-asc">Rating (lowest first)</option>
+            <option value="duration-desc">Duration (longest first)</option>
+            <option value="duration-asc">Duration (shortest first)</option>
           </select>
         </div>
         <div className="row" style={{ gap: 12, marginBottom: 14 }}>
@@ -2113,12 +2125,23 @@ function PlaylistTab({ active = true }) {
           {playlistInfo && Object.keys(playlistInfo).length > 0 && (
             <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
               <h3>Playlist Details</h3>
-              <div className="meta-grid">
-                <span><b>Playlist ID:</b> {playlistInfo.playlistId}</span>
-                <span><b>Title:</b> {playlistInfo.title}</span>
-                <span><b>Channel ID:</b> {playlistInfo.channelId}</span>
-                <span><b>Channel Name:</b> {playlistInfo.channelTitle}</span>
-                <span><b>Published At:</b> {playlistInfo.publishedAt}</span>
+              <div style={{ display: "flex", gap: 14 }}>
+                {playlistInfo.thumbnail && (
+                  <ImageWithFallback
+                    src={playlistInfo.thumbnail}
+                    alt={playlistInfo.title}
+                    style={{ width: 160, height: 90, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+                  />
+                )}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="meta-grid">
+                    <span><b>Playlist ID:</b> {playlistInfo.playlistId}</span>
+                    <span><b>Title:</b> {playlistInfo.title}</span>
+                    <span><b>Channel ID:</b> {playlistInfo.channelId}</span>
+                    <span><b>Channel Name:</b> {playlistInfo.channelTitle}</span>
+                    <span><b>Published At:</b> {playlistInfo.publishedAt}</span>
+                  </div>
+                </div>
               </div>
               <div style={{ marginTop: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Description: </span>
@@ -2134,9 +2157,14 @@ function PlaylistTab({ active = true }) {
           )}
           <p className="result-count" style={{ marginTop: 16 }}>
             Video count: {fmtCount(totalVideoCount)}
-            {filteredVideos.length !== totalVideoCount && (
+            {(titleSearch || startDate || endDate) && filteredVideos.length !== totalVideoCount && (
               <span style={{ color: "var(--muted)", fontWeight: 400 }}>
-                {" "}({fmtCount(filteredVideos.length)} shown{titleSearch || startDate || endDate ? " matching filters" : " loaded so far"})
+                {" "}({fmtCount(filteredVideos.length)} shown matching filters)
+              </span>
+            )}
+            {!(titleSearch || startDate || endDate) && totalVideoCount <= 50 && filteredVideos.length !== totalVideoCount && (
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                {" "}({fmtCount(filteredVideos.length)} shown loaded so far)
               </span>
             )}
           </p>

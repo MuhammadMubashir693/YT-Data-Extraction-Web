@@ -16,6 +16,7 @@ import {
   keywordMatches,
   keywordMatchesPerField,
   shapeVideo,
+  durationToSeconds,
 } from "./helpers.js";
 
 dotenv.config();
@@ -224,6 +225,16 @@ function sortVideos(items, sort) {
       return items.sort((a, b) =>
         a.snippet.title.localeCompare(b.snippet.title, undefined, { numeric: true, sensitivity: "base" }) * direction
       );
+    case "duration-asc":
+    case "duration-desc":
+      return items.sort((a, b) => {
+        const aSeconds = durationToSeconds(a.contentDetails?.duration);
+        const bSeconds = durationToSeconds(b.contentDetails?.duration);
+        if (aSeconds === null && bSeconds === null) return 0;
+        if (aSeconds === null) return 1;
+        if (bSeconds === null) return -1;
+        return (aSeconds - bSeconds) * direction;
+      });
     default:
       return items;
   }
@@ -566,6 +577,7 @@ app.get("/api/channel", async (req, res) => {
       );
       for (const item of playlistResp.items || []) {
         const rawCount = item.contentDetails?.itemCount;
+        const plThumb = item.snippet?.thumbnails || {};
         playlists.push({
           playlistId: item.id,
           playlistUrl: `https://www.youtube.com/playlist?list=${item.id}`,
@@ -575,6 +587,13 @@ app.get("/api/channel", async (req, res) => {
           publishedAtRaw: item.snippet?.publishedAt || null,
           videoCount: rawCount ?? "N/A",
           videoCountRaw: rawCount != null ? Number(rawCount) : null,
+          thumbnail:
+            plThumb.maxres?.url ||
+            plThumb.standard?.url ||
+            plThumb.high?.url ||
+            plThumb.medium?.url ||
+            plThumb.default?.url ||
+            null,
         });
       }
       playlistPageToken = playlistResp.nextPageToken;
@@ -597,6 +616,7 @@ app.get("/api/channel", async (req, res) => {
         publishedAtRaw: sn.publishedAt || null,
         videoCount: rawCount ?? "N/A",
         videoCountRaw: rawCount != null ? Number(rawCount) : null,
+        thumbnail: thumbUrl,
       });
     }
 
@@ -836,6 +856,7 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
   let playlistInfo = {};
   if (playlistMetadata.items?.length) {
     const playlist = playlistMetadata.items[0];
+    const plThumb = playlist.snippet?.thumbnails || {};
     playlistInfo = {
       playlistId: playlist.id,
       title: playlist.snippet?.title || "N/A",
@@ -843,6 +864,13 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
       channelTitle: playlist.snippet?.channelTitle || "N/A",
       publishedAt: fmtDatetime(playlist.snippet?.publishedAt),
       description: (playlist.snippet?.description || "").trim(),
+      thumbnail:
+        plThumb.maxres?.url ||
+        plThumb.standard?.url ||
+        plThumb.high?.url ||
+        plThumb.medium?.url ||
+        plThumb.default?.url ||
+        null,
     };
   } else {
     // "Special" playlists (channel uploads = UU, liked videos = LL, legacy
@@ -860,6 +888,7 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
         const chResp = await ytFetch("channels", { part: "snippet", id: derivedChannelId });
         const ch = chResp.items?.[0];
         if (ch) {
+          const chThumb = ch.snippet?.thumbnails || {};
           playlistInfo = {
             playlistId,
             title: `${ch.snippet.title} – ${label}`,
@@ -867,6 +896,13 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
             channelTitle: ch.snippet.title,
             publishedAt: fmtDatetime(ch.snippet.publishedAt),
             description: (ch.snippet.description || "").trim(),
+            thumbnail:
+              chThumb.maxres?.url ||
+              chThumb.standard?.url ||
+              chThumb.high?.url ||
+              chThumb.medium?.url ||
+              chThumb.default?.url ||
+              null,
           };
         }
       } catch {
@@ -973,9 +1009,9 @@ app.get("/api/search-videos", async (req, res) => {
       (k) => k && k.trim()
     );
 
-    // At least one keyword must be provided
-    if (!keyword && !hasPerField) {
-      return res.status(400).json({ error: "keyword is required" });
+    // At least one of keyword, date range, or duration filter must be provided
+    if (!keyword && !hasPerField && !startDate && !endDate && !durationFilter) {
+      return res.status(400).json({ error: "Provide a keyword, date range, or duration type" });
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
@@ -985,11 +1021,11 @@ app.get("/api/search-videos", async (req, res) => {
 
     const params = {
       part: "snippet",
-      q: apiKeyword,
       maxResults: 50,
       order: "date",
       type: "video",
     };
+    if (apiKeyword) params.q = apiKeyword;
     if (durationFilter) params.videoDuration = durationFilter;
     if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
     if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;

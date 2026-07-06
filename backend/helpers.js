@@ -142,6 +142,19 @@ export function fmtDatetimeAt(isoStr) {
   return `${date} at ${time} UTC`;
 }
 
+// Returns the total number of seconds represented by an ISO-8601 duration
+// string (e.g. "PT4M13S"), or null if it can't be parsed. Used for sorting
+// videos by duration, since the human-readable form isn't sortable.
+export function durationToSeconds(isoDur) {
+  if (!isoDur) return null;
+  try {
+    const secs = Math.floor(toSeconds(parseISODuration(isoDur)));
+    return Number.isFinite(secs) ? secs : null;
+  } catch {
+    return null;
+  }
+}
+
 export function fmtDuration(isoDur) {
   let total;
   try {
@@ -251,6 +264,7 @@ export function shapeVideo(item, idOverride) {
     channelTitle: sid.channelTitle,
     uploadDate: fmtDatetime(sid.publishedAt),
     duration: cdet.duration ? fmtDuration(cdet.duration) : "N/A",
+    durationSeconds: durationToSeconds(cdet.duration),
     likes: stat.likeCount ?? "N/A",
     views: stat.viewCount ?? "N/A",
     comments: stat.commentCount ?? "N/A",
