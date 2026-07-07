@@ -448,3 +448,31 @@ button.secondary:hover {
   margin-bottom: 20px;
   font-size: 13px;
 }
+
+.category-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  font-weight: 500;
+}
+
+.category-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent-2);
+  color: var(--text);
+}
+
+.category-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.category-btn.active:hover {
+  opacity: 0.9;
+}

@@ -255,6 +255,7 @@ export function shapeVideo(item, idOverride) {
   const cdet = item.contentDetails || {};
   const stat = item.statistics || {};
   const vid = idOverride || (typeof item.id === "string" ? item.id : item.id?.videoId || "");
+  const liveDetails = item.liveStreamingDetails || {};
 
   return {
     videoId: vid,
@@ -277,5 +278,9 @@ export function shapeVideo(item, idOverride) {
       `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`,
     description: (sid.description || "").trim(),
     publishedAtRaw: sid.publishedAt,
+    scheduledStartTime: liveDetails.scheduledStartTime || null,
+    actualStartTime: liveDetails.actualStartTime || null,
+    actualEndTime: liveDetails.actualEndTime || null,
+    liveBroadcastContent: sid.liveBroadcastContent || "none",
   };
 }

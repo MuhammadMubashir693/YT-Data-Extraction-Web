@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
@@ -557,6 +557,7 @@ function ChannelSearchTab() {
   const [useDateRange, setUseDateRange] = useState(false);
   const [useDuration, setUseDuration] = useState(false);
   const [durationFilter, setDurationFilter] = useState("medium");
+  const [liveFilter, setLiveFilter] = useState(false);
 
   // Channel search state
   const [chKeyword, setChKeyword] = useState("");
@@ -633,6 +634,7 @@ function ChannelSearchTab() {
     setPlUsePerField(false);
     setPlKeywordTitle("");
     setPlKeywordChannel("");
+    setLiveFilter(false);
     setMaxResults("50");
   };
 
@@ -659,6 +661,7 @@ function ChannelSearchTab() {
           }
           if (useDuration) params.durationFilter = durationFilter;
           if (sortOption) params.sort = sortOption;
+          if (liveFilter) params.live = "true";
           params.maxResults = maxResults;
           const data = await apiGet("channel-videos", params);
           setVideos(data.videos);
@@ -680,6 +683,7 @@ function ChannelSearchTab() {
           if (startDate) params.startDate = startDate;
           if (endDate) params.endDate = endDate;
           if (useDuration) params.durationFilter = durationFilter;
+          if (liveFilter) params.live = "true";
           const data = await apiGet("search-videos", params);
           setVideos(data.videos);
         }
@@ -925,6 +929,15 @@ function ChannelSearchTab() {
                 </select>
               </div>
             )}
+
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={liveFilter}
+                onChange={(e) => setLiveFilter(e.target.checked)}
+              />
+              Live
+            </label>
           </>
         )}
 
@@ -1300,6 +1313,8 @@ function ChannelTab({ active = true }) {
   const [channels, setChannels] = useState([]);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
 
+  const [categoryFilter, setCategoryFilter] = useState("all");
+
   const loadSavedChannels = async () => {
     try {
       const data = await apiGet("channels");
@@ -1438,6 +1453,29 @@ function ChannelTab({ active = true }) {
       return true;
     });
   })();
+
+  const displayedVideos = useMemo(() => {
+    if (!latestVideos) return [];
+    return latestVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
+      const isStandard = !isLive && !isShort;
+      if (categoryFilter === "all") return true;
+      if (categoryFilter === "standard") return isStandard;
+      if (categoryFilter === "shorts") return isShort;
+      if (categoryFilter === "live") return isLive;
+      return true;
+    });
+  }, [latestVideos, categoryFilter]);
+
+  const counts = useMemo(() => {
+    if (!latestVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
+    const all = latestVideos.length;
+    const live = latestVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
+    const shorts = latestVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && v.durationSeconds !== null && v.durationSeconds <= 180).length;
+    const standard = all - live - shorts;
+    return { all, standard, shorts, live };
+  }, [latestVideos]);
 
   return (
     <div className="panel">
@@ -1624,9 +1662,47 @@ function ChannelTab({ active = true }) {
                 {latestVideos && (
                   <>
                     <ExportBar data={latestVideos} filenameBase="channel-latest-videos" />
-                    <p className="result-count">Video count: {fmtCount(latestVideos.length)}</p>
+
+                    {/* Category buttons */}
+                    <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
+                        onClick={() => setCategoryFilter("all")}
+                      >
+                        All ({counts.all})
+                      </button>
+                      <button
+                        type="button"
+                        className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
+                        onClick={() => setCategoryFilter("standard")}
+                      >
+                        Standard ({counts.standard})
+                      </button>
+                      <button
+                        type="button"
+                        className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
+                        onClick={() => setCategoryFilter("shorts")}
+                      >
+                        Shorts ({counts.shorts})
+                      </button>
+                      <button
+                        type="button"
+                        className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
+                        onClick={() => setCategoryFilter("live")}
+                      >
+                        Live ({counts.live})
+                      </button>
+                    </div>
+
+                    <p className="result-count">
+                      {categoryFilter === "all"
+                        ? `Video count: ${fmtCount(latestVideos.length)}`
+                        : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(latestVideos.length)} videos`}
+                    </p>
+
                     <div>
-                      {latestVideos.map(({ description: _desc, ...v }) => (
+                      {displayedVideos.map(({ description: _desc, ...v }) => (
                         <VideoCard key={v.videoId} v={v} />
                       ))}
                     </div>

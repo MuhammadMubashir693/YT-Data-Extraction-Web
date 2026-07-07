@@ -327,7 +327,7 @@ app.get("/api/video", async (req, res) => {
       return res.status(400).json({ error: "Could not parse a valid video ID from the input." });
     }
     const data = await ytFetch("videos", {
-      part: "snippet,contentDetails,statistics",
+      part: "snippet,contentDetails,statistics,liveStreamingDetails",
       id: vid,
     });
     if (!data.items?.length) {
@@ -400,6 +400,9 @@ app.get("/api/channel-videos", async (req, res) => {
     if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
     if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
     if (mode === "keyword" && apiKeyword) params.q = apiKeyword;
+    if (req.query.live === "true") {
+      params.eventType = "live";
+    }
 
     let videoIds = [];
     let nextPage;
@@ -427,7 +430,7 @@ app.get("/api/channel-videos", async (req, res) => {
     for (let i = 0; i < videoIds.length; i += 50) {
       const batch = videoIds.slice(i, i + 50);
       const vresp = await ytFetch("videos", {
-        part: "snippet,contentDetails,statistics",
+        part: "snippet,contentDetails,statistics,liveStreamingDetails",
         id: batch.join(","),
       });
       fullItems.push(...(vresp.items || []));
@@ -502,7 +505,7 @@ app.get("/api/channel-latest-videos", async (req, res) => {
     }
 
     const vResp = await ytFetch("videos", {
-      part: "snippet,contentDetails,statistics",
+      part: "snippet,contentDetails,statistics,liveStreamingDetails",
       id: videoIds.join(","),
     });
 
@@ -972,7 +975,7 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
   for (let i = 0; i < videoIds.length; i += 50) {
     const batch = videoIds.slice(i, i + 50);
     const vresp = await ytFetch("videos", {
-      part: "snippet,contentDetails,statistics",
+      part: "snippet,contentDetails,statistics,liveStreamingDetails",
       id: batch.join(","),
     });
     items.push(...(vresp.items || []));
@@ -1071,6 +1074,9 @@ app.get("/api/search-videos", async (req, res) => {
     if (durationFilter) params.videoDuration = durationFilter;
     if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
     if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
+    if (req.query.live === "true") {
+      params.eventType = "live";
+    }
 
     let videoIds = [];
     let nextPage;
@@ -1098,7 +1104,7 @@ app.get("/api/search-videos", async (req, res) => {
     for (let i = 0; i < videoIds.length; i += 50) {
       const batch = videoIds.slice(i, i + 50);
       const vresp = await ytFetch("videos", {
-        part: "snippet,contentDetails,statistics",
+        part: "snippet,contentDetails,statistics,liveStreamingDetails",
         id: batch.join(","),
       });
       fullItems.push(...(vresp.items || []));
