@@ -1297,6 +1297,34 @@ function ChannelTab({ active = true }) {
   const [latestNextToken, setLatestNextToken] = useState(null);
   const [latestPrevToken, setLatestPrevToken] = useState(null);
 
+  const [channels, setChannels] = useState([]);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
+
+  const loadSavedChannels = async () => {
+    try {
+      const data = await apiGet("channels");
+      setChannels(Array.isArray(data) ? data : []);
+    } catch {
+      // Fallback to local storage if backend is unavailable
+      const local = getStoredChannels();
+      setChannels(local);
+    } finally {
+      setChannelsLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    loadSavedChannels();
+  }, []);
+
+
+  const handleChannelSelect = (e) => {
+    const selectedId = e.target.value;
+    if (selectedId) {
+      setInput(selectedId);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
@@ -1414,6 +1442,18 @@ function ChannelTab({ active = true }) {
   return (
     <div className="panel">
       <form onSubmit={submit}>
+        <div className="field">
+          <label>Select saved channel</label>
+          <select value="" onChange={handleChannelSelect} disabled={!channelsLoaded}>
+            <option value="">-- Choose a saved channel --</option>
+            {channels.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.id})
+              </option>
+            ))}
+          </select>
+          {!channelsLoaded && <span className="spinner" />}
+        </div>
         <div className="field">
           <label>Channel ID, URL, or handle</label>
           <input
@@ -2362,7 +2402,7 @@ export default function App() {
     fetch("/api/health")
       .then((r) => r.json())
       .then((d) => setApiKeySet(!!d.apiKeySet))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   return (
