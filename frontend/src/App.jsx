@@ -583,6 +583,31 @@ function ChannelSearchTab() {
 
   const sortedVideos = videos ? sortVideosClient(videos, sortOption) : null;
 
+  const [categoryFilter, setCategoryFilter] = useState("all");
+
+  const displayedVideos = useMemo(() => {
+    if (!sortedVideos) return [];
+    return sortedVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
+      const isStandard = !isLive && !isShort;
+      if (categoryFilter === "all") return true;
+      if (categoryFilter === "standard") return isStandard;
+      if (categoryFilter === "shorts") return isShort;
+      if (categoryFilter === "live") return isLive;
+      return true;
+    });
+  }, [sortedVideos, categoryFilter]);
+
+  const counts = useMemo(() => {
+    if (!sortedVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
+    const all = sortedVideos.length;
+    const live = sortedVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
+    const shorts = sortedVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && v.durationSeconds !== null && v.durationSeconds <= 180).length;
+    const standard = all - live - shorts;
+    return { all, standard, shorts, live };
+  }, [sortedVideos]);
+
   const refreshChannels = async () => {
     try {
       const data = await apiGet("channels");
@@ -636,6 +661,7 @@ function ChannelSearchTab() {
     setPlKeywordChannel("");
     setLiveFilter(false);
     setMaxResults("50");
+    setCategoryFilter("all");
   };
 
   const submit = async (e) => {
@@ -1028,7 +1054,46 @@ function ChannelSearchTab() {
         <>
           <p className="result-count">Result count: {fmtCount(videos.length)}</p>
           <ExportBar data={sortedVideos} filenameBase="video-search-results" />
-          {sortedVideos.map(({ description: _desc, ...v }) => (
+
+          {/* Category buttons */}
+          <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("all")}
+            >
+              All ({counts.all})
+            </button>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("standard")}
+            >
+              Standard ({counts.standard})
+            </button>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("shorts")}
+            >
+              Shorts ({counts.shorts})
+            </button>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("live")}
+            >
+              Live ({counts.live})
+            </button>
+          </div>
+
+          <p className="result-count" style={{ marginTop: 0 }}>
+            {categoryFilter === "all"
+              ? `Total videos: ${fmtCount(sortedVideos.length)}`
+              : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(sortedVideos.length)} videos`}
+          </p>
+
+          {displayedVideos.map(({ description: _desc, ...v }) => (
             <VideoCard key={v.videoId} v={v} />
           ))}
         </>
@@ -2145,6 +2210,7 @@ function PlaylistTab({ active = true }) {
   const [titleSearch, setTitleSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   const filteredVideos = (() => {
     if (!playlistVideos?.length) return [];
@@ -2152,6 +2218,29 @@ function PlaylistTab({ active = true }) {
     const byTitle = term ? playlistVideos.filter((v) => (v.title || "").toLowerCase().includes(term)) : playlistVideos;
     return filterVideosByDateRange(byTitle, startDate, endDate);
   })();
+
+  const displayedVideos = useMemo(() => {
+    if (!filteredVideos) return [];
+    return filteredVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
+      const isStandard = !isLive && !isShort;
+      if (categoryFilter === "all") return true;
+      if (categoryFilter === "standard") return isStandard;
+      if (categoryFilter === "shorts") return isShort;
+      if (categoryFilter === "live") return isLive;
+      return true;
+    });
+  }, [filteredVideos, categoryFilter]);
+
+  const counts = useMemo(() => {
+    if (!filteredVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
+    const all = filteredVideos.length;
+    const live = filteredVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
+    const shorts = filteredVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && v.durationSeconds !== null && v.durationSeconds <= 180).length;
+    const standard = all - live - shorts;
+    return { all, standard, shorts, live };
+  }, [filteredVideos]);
 
   const loadPlaylist = async (sort, pageToken) => {
     if (loading) return;
@@ -2212,6 +2301,7 @@ function PlaylistTab({ active = true }) {
     setNextPageToken(null);
     setHasMorePages(false);
     setTotalVideoCount(0);
+    setCategoryFilter("all");
   };
 
   return (
@@ -2285,6 +2375,37 @@ function PlaylistTab({ active = true }) {
             data={{ ...(playlistInfo || {}), videos: filteredVideos }}
             filenameBase="playlist-details"
           />
+          {/* Category buttons */}
+          <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("all")}
+            >
+              All ({counts.all})
+            </button>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("standard")}
+            >
+              Standard ({counts.standard})
+            </button>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("shorts")}
+            >
+              Shorts ({counts.shorts})
+            </button>
+            <button
+              type="button"
+              className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
+              onClick={() => setCategoryFilter("live")}
+            >
+              Live ({counts.live})
+            </button>
+          </div>
           {playlistInfo && Object.keys(playlistInfo).length > 0 && (
             <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
               <h3>Playlist Details</h3>
@@ -2319,20 +2440,18 @@ function PlaylistTab({ active = true }) {
             </div>
           )}
           <p className="result-count" style={{ marginTop: 16 }}>
-            Video count: {fmtCount(totalVideoCount)}
+            {categoryFilter === "all"
+              ? `Video count: ${fmtCount(totalVideoCount)}`
+              : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(filteredVideos.length)} videos`
+            }
             {(titleSearch || startDate || endDate) && filteredVideos.length !== totalVideoCount && (
               <span style={{ color: "var(--muted)", fontWeight: 400 }}>
                 {" "}({fmtCount(filteredVideos.length)} shown matching filters)
               </span>
             )}
-            {!(titleSearch || startDate || endDate) && totalVideoCount <= 50 && filteredVideos.length !== totalVideoCount && (
-              <span style={{ color: "var(--muted)", fontWeight: 400 }}>
-                {" "}({fmtCount(filteredVideos.length)} shown loaded so far)
-              </span>
-            )}
           </p>
           <div>
-            {filteredVideos.map(({ description: _desc, ...v }) => (
+            {displayedVideos.map(({ description: _desc, ...v }) => (
               <VideoCard key={v.videoId} v={v} />
             ))}
             {hasMorePages && (
