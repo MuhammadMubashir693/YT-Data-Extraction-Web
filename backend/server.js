@@ -1,3 +1,5 @@
+import swaggerUi from "swagger-ui-express";
+import swaggerSpec from "./swagger.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -58,6 +60,8 @@ function getChannelCollection() {
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+console.log("Swagger UI available at http://localhost:5000/api-docs");
 
 const PAGINATION_DELAY_MS = 250;
 
@@ -111,6 +115,26 @@ function setCachedPlaylist(playlistId, { playlistInfo, items }) {
     expiresAt: Date.now() + PLAYLIST_CACHE_TTL_MS,
   });
 }
+
+/**
+ * @swagger
+ * /api/proxy-image:
+ *   get:
+ *     summary: Proxy an image URL to avoid CORS
+ *     parameters:
+ *       - in: query
+ *         name: url
+ *         required: true
+ *         schema: { type: string }
+ *         description: Image URL
+ *     responses:
+ *       200:
+ *         description: Image stream
+ *       400:
+ *         description: Missing url
+ *       502:
+ *         description: Proxy error
+ */
 
 app.get("/api/proxy-image", async (req, res) => {
   const url = req.query.url;
@@ -248,6 +272,27 @@ async function loadChannels() {
     .toArray();
 }
 
+/**
+ * @swagger
+ * /api/channels:
+ *   get:
+ *     summary: Get all saved channels
+ *     responses:
+ *       200:
+ *         description: Array of channel objects
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   id:
+ *                     type: string
+ */
+
 app.get("/api/channels", async (req, res) => {
   try {
     const channels = await loadChannels();
@@ -256,6 +301,31 @@ app.get("/api/channels", async (req, res) => {
     handleError(res, err);
   }
 });
+
+/**
+ * @swagger
+ * /api/channels:
+ *   post:
+ *     summary: Add a new channel
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               id:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Channel added
+ *       400:
+ *         description: Missing name or id
+ *       409:
+ *         description: Channel already exists
+ */
 
 app.post("/api/channels", async (req, res) => {
   try {
@@ -276,6 +346,31 @@ app.post("/api/channels", async (req, res) => {
     handleError(res, err);
   }
 });
+
+/**
+ * @swagger
+ * /api/channels/{currentId}:
+ *   put:
+ *     summary: Update a saved channel
+ *     parameters:
+ *       - in: path
+ *         name: currentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               id: { type: string }
+ *     responses:
+ *       200: { description: Channel updated }
+ *       404: { description: Channel not found }
+ *       409: { description: ID conflict }
+ */
 
 app.put("/api/channels/:currentId", async (req, res) => {
   try {
@@ -303,6 +398,21 @@ app.put("/api/channels/:currentId", async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/channels/{id}:
+ *   delete:
+ *     summary: Delete a saved channel
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Deleted }
+ *       404: { description: Channel not found }
+ */
+
 app.delete("/api/channels/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -318,6 +428,23 @@ app.delete("/api/channels/:id", async (req, res) => {
 });
 
 // ── Part 1 – Single video details ───────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/video:
+ *   get:
+ *     summary: Get single video details
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         description: Video ID or URL
+ *     responses:
+ *       200: { description: Video object }
+ *       400: { description: Invalid video ID }
+ *       404: { description: Video not found }
+ */
 
 app.get("/api/video", async (req, res) => {
   try {
@@ -359,6 +486,61 @@ app.get("/api/video", async (req, res) => {
 });
 
 // ── Part 2 – Channel search / filter ──────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/channel-videos:
+ *   get:
+ *     summary: Search videos within a channel
+ *     parameters:
+ *       - in: query
+ *         name: channelId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: mode
+ *         schema: { type: string, enum: [keyword, date] }
+ *       - in: query
+ *         name: keyword
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordTitle
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordDescription
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordChannel
+ *         schema: { type: string }
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: durationFilter
+ *         schema: { type: string, enum: [short, medium, long] }
+ *       - in: query
+ *         name: matchMode
+ *         schema: { type: string, enum: [every, some] }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 500 }
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Videos array
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 videos: { type: array }
+ *                 count: { type: integer }
+ */
 
 app.get("/api/channel-videos", async (req, res) => {
   try {
@@ -464,6 +646,26 @@ app.get("/api/channel-videos", async (req, res) => {
 // YouTube's own nextPageToken/prevPageToken so callers can page forward and
 // backward through the uploads playlist without ever fetching all of it.
 
+/**
+ * @swagger
+ * /api/channel-latest-videos:
+ *   get:
+ *     summary: Get latest uploads from a channel (paginated)
+ *     parameters:
+ *       - in: query
+ *         name: channelId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: count
+ *         schema: { type: integer, minimum: 1, maximum: 50 }
+ *       - in: query
+ *         name: pageToken
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Videos array with pagination tokens }
+ */
+
 app.get("/api/channel-latest-videos", async (req, res) => {
   try {
     const { channelId, pageToken } = req.query;
@@ -521,6 +723,23 @@ app.get("/api/channel-latest-videos", async (req, res) => {
 });
 
 // ── Part 3 – Channel details ──────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/channel:
+ *   get:
+ *     summary: Get channel details
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         description: Channel ID, URL, or handle
+ *     responses:
+ *       200: { description: Channel object }
+ *       400: { description: Invalid channel input }
+ *       404: { description: Channel not found }
+ */
 
 app.get("/api/channel", async (req, res) => {
   try {
@@ -589,6 +808,23 @@ app.get("/api/channel", async (req, res) => {
 // Split out from /api/channel so that a channel lookup never implicitly pages
 // through every playlists.list result — that only happens when the user
 // clicks "Fetch Playlists".
+
+/**
+ * @swagger
+ * /api/channel-playlists:
+ *   get:
+ *     summary: Fetch all public playlists for a channel
+ *     parameters:
+ *       - in: query
+ *         name: channelId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Playlists array }
+ *       400: { description: Invalid channelId }
+ *       404: { description: Channel not found }
+ */
+
 app.get("/api/channel-playlists", async (req, res) => {
   try {
     const channelId = (req.query.channelId || "").trim();
@@ -684,6 +920,23 @@ app.get("/api/channel-playlists", async (req, res) => {
 
 // ── Part 4 – Single comment by ID ──────────────────────────────────────────
 
+/**
+ * @swagger
+ * /api/comment:
+ *   get:
+ *     summary: Get a single comment by ID
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         description: Comment ID or URL with lc param
+ *     responses:
+ *       200: { description: Comment object }
+ *       400: { description: Invalid comment ID }
+ *       404: { description: Comment not found }
+ */
+
 app.get("/api/comment", async (req, res) => {
   try {
     const raw = req.query.q || "";
@@ -718,6 +971,39 @@ app.get("/api/comment", async (req, res) => {
 });
 
 // ── Part 5 – Comment threads with replies ──────────────────────────────────
+
+/**
+ * @swagger
+ * /api/comments:
+ *   get:
+ *     summary: Get comment threads for a video
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         description: Video ID or URL
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string, enum: [top, latest, earliest, likes-desc, likes-asc] }
+ *       - in: query
+ *         name: keyword
+ *         schema: { type: string }
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: pageToken
+ *         schema: { type: string }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 50 }
+ *     responses:
+ *       200: { description: Threads and pagination info }
+ */
 
 app.get("/api/comments", async (req, res) => {
   try {
@@ -835,6 +1121,27 @@ app.get("/api/comments", async (req, res) => {
     handleError(res, err);
   }
 });
+
+/**
+ * @swagger
+ * /api/comment-replies:
+ *   get:
+ *     summary: Get replies to a comment thread
+ *     parameters:
+ *       - in: query
+ *         name: parentId
+ *         required: true
+ *         schema: { type: string }
+ *         description: Top‑level comment ID
+ *       - in: query
+ *         name: pageToken
+ *         schema: { type: string }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 50 }
+ *     responses:
+ *       200: { description: Reply objects and pagination }
+ */
 
 app.get("/api/comment-replies", async (req, res) => {
   try {
@@ -981,6 +1288,40 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
   return { playlistInfo, items };
 }
 
+/**
+ * @swagger
+ * /api/playlist:
+ *   get:
+ *     summary: Get all videos from a playlist (cached)
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         description: Playlist ID or URL
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 500 }
+ *       - in: query
+ *         name: pageToken
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Playlist info and videos (paginated)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 playlistInfo: { type: object }
+ *                 videos: { type: array }
+ *                 count: { type: integer }
+ *                 nextPageToken: { type: string }
+ */
+
 app.get("/api/playlist", async (req, res) => {
   try {
     const raw = req.query.q || "";
@@ -1032,6 +1373,54 @@ app.get("/api/playlist", async (req, res) => {
 });
 
 // ── Part 6 – Search videos (general) ────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/search-videos:
+ *   get:
+ *     summary: Search videos across YouTube
+ *     parameters:
+ *       - in: query
+ *         name: keyword
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordTitle
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordDescription
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordChannel
+ *         schema: { type: string }
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: durationFilter
+ *         schema: { type: string, enum: [short, medium, long] }
+ *       - in: query
+ *         name: matchMode
+ *         schema: { type: string, enum: [every, some] }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 500 }
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Videos array and count
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 videos: { type: array }
+ *                 count: { type: integer }
+ */
 
 app.get("/api/search-videos", async (req, res) => {
   try {
@@ -1125,6 +1514,36 @@ app.get("/api/search-videos", async (req, res) => {
 });
 
 // ── Part 7 – Search channels ────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/search-channels:
+ *   get:
+ *     summary: Search channels by name
+ *     parameters:
+ *       - in: query
+ *         name: keyword
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 500 }
+ *       - in: query
+ *         name: pageToken
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Channels array and pagination tokens
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 channels: { type: array }
+ *                 count: { type: integer }
+ *                 nextPageToken: { type: string }
+ *                 prevPageToken: { type: string }
+ */
 
 app.get("/api/search-channels", async (req, res) => {
   try {
@@ -1230,6 +1649,36 @@ app.get("/api/search-channels", async (req, res) => {
 
 // ── Part 8 – Search playlists ───────────────────────────────────────────────
 
+/**
+ * @swagger
+ * /api/search-playlists:
+ *   get:
+ *     summary: Search playlists by keyword
+ *     parameters:
+ *       - in: query
+ *         name: keyword
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordTitle
+ *         schema: { type: string }
+ *       - in: query
+ *         name: keywordChannel
+ *         schema: { type: string }
+ *       - in: query
+ *         name: maxResults
+ *         schema: { type: integer, minimum: 1, maximum: 500 }
+ *     responses:
+ *       200:
+ *         description: Playlists array and count
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 playlists: { type: array }
+ *                 count: { type: integer }
+ */
+
 app.get("/api/search-playlists", async (req, res) => {
   try {
     const { keyword, keywordTitle, keywordChannel, maxResults } = req.query;
@@ -1322,6 +1771,23 @@ app.get("/api/search-playlists", async (req, res) => {
     handleError(res, err);
   }
 });
+
+/**
+ * @swagger
+ * /api/health:
+ *   get:
+ *     summary: Health check
+ *     responses:
+ *       200:
+ *         description: OK
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 ok: { type: boolean }
+ *                 apiKeySet: { type: boolean }
+ */
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, apiKeySet: !!API_KEY });
