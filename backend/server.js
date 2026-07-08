@@ -481,6 +481,12 @@ app.get("/api/video", async (req, res) => {
 
     res.json(shaped);
   } catch (err) {
+    // YouTube API may return 404 for invalid video IDs
+    if (err?.response?.status === 404) {
+      return res.status(404).json({
+        error: "The video could not be found. Please check the video ID or URL."
+      });
+    }
     handleError(res, err);
   }
 });
@@ -1003,6 +1009,9 @@ app.get("/api/comment", async (req, res) => {
  *         schema: { type: integer, minimum: 1, maximum: 50 }
  *     responses:
  *       200: { description: Threads and pagination info }
+ *       400: { description: Invalid format }
+ *       403: { description: Comments disabled}
+ *       404: { description: Video not found}
  */
 
 app.get("/api/comments", async (req, res) => {
@@ -1118,6 +1127,22 @@ app.get("/api/comments", async (req, res) => {
       threads,
     });
   } catch (err) {
+    // Check for video not found errors from YouTube API
+    const errorData = err?.response?.data?.error;
+    const errorMessage = errorData?.message || "";
+    const errorStatus = err?.response?.status;
+
+    // YouTube returns 404 or a specific message when video is not found
+    if (errorStatus === 404 ||
+      (errorData?.errors && errorData.errors.some(e => e.reason === "notFound")) ||
+      errorMessage.toLowerCase().includes("video") &&
+      errorMessage.toLowerCase().includes("not found")) {
+      return res.status(404).json({
+        error: "The video could not be found. Please check the video ID or URL."
+      });
+    }
+
+    // Handle other errors (quota, disabled comments, etc.)
     handleError(res, err);
   }
 });
