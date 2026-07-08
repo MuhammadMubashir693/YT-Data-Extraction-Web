@@ -2601,13 +2601,27 @@ function VideoPlayerTab() {
 export default function App() {
   const [tab, setTab] = useState("video");
   const [apiKeySet, setApiKeySet] = useState(true);
+  const [scrollPositions, setScrollPositions] = useState({}); // ← NEW
 
   useEffect(() => {
     fetch("/api/health")
       .then((r) => r.json())
       .then((d) => setApiKeySet(!!d.apiKeySet))
-      .catch(() => { });
+      .catch(() => {});
   }, []);
+
+  // ── Restore scroll position on tab change ──
+  useEffect(() => {
+    const savedPosition = scrollPositions[tab];
+    if (savedPosition !== undefined) {
+      window.scrollTo({
+        top: savedPosition,
+        behavior: "auto",
+      });
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, [tab, scrollPositions]);
 
   return (
     <div className="app-shell">
@@ -2622,7 +2636,14 @@ export default function App() {
             <button
               key={t.id}
               className={`tab ${tab === t.id ? "active" : ""}`}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                // ── Save current scroll position ──
+                setScrollPositions((prev) => ({
+                  ...prev,
+                  [tab]: window.scrollY,
+                }));
+                setTab(t.id);
+              }}
             >
               {t.label}
             </button>
