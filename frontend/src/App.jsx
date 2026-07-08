@@ -585,6 +585,15 @@ function ChannelSearchTab() {
 
   const [categoryFilter, setCategoryFilter] = useState("all");
 
+  // ── Sync live checkbox with category filter ──
+  useEffect(() => {
+    if (liveFilter) {
+      setCategoryFilter("live");
+    } else {
+      setCategoryFilter("all");
+    }
+  }, [liveFilter]);
+
   const displayedVideos = useMemo(() => {
     if (!sortedVideos) return [];
     return sortedVideos.filter(v => {
@@ -659,8 +668,8 @@ function ChannelSearchTab() {
     setPlUsePerField(false);
     setPlKeywordTitle("");
     setPlKeywordChannel("");
-    setLiveFilter(false);
     setMaxResults("50");
+    setLiveFilter(false);
     setCategoryFilter("all");
   };
 
@@ -687,7 +696,6 @@ function ChannelSearchTab() {
           }
           if (useDuration) params.durationFilter = durationFilter;
           if (sortOption) params.sort = sortOption;
-          if (liveFilter) params.live = "true";
           params.maxResults = maxResults;
           const data = await apiGet("channel-videos", params);
           setVideos(data.videos);
@@ -709,7 +717,6 @@ function ChannelSearchTab() {
           if (startDate) params.startDate = startDate;
           if (endDate) params.endDate = endDate;
           if (useDuration) params.durationFilter = durationFilter;
-          if (liveFilter) params.live = "true";
           const data = await apiGet("search-videos", params);
           setVideos(data.videos);
         }
@@ -1056,36 +1063,38 @@ function ChannelSearchTab() {
           <ExportBar data={sortedVideos} filenameBase="video-search-results" />
 
           {/* Category buttons */}
-          <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("all")}
-            >
-              All ({counts.all})
-            </button>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("standard")}
-            >
-              Standard ({counts.standard})
-            </button>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("shorts")}
-            >
-              Shorts ({counts.shorts})
-            </button>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("live")}
-            >
-              Live ({counts.live})
-            </button>
-          </div>
+          {!liveFilter && (
+            <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
+                onClick={() => setCategoryFilter("all")}
+              >
+                All ({counts.all})
+              </button>
+              <button
+                type="button"
+                className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
+                onClick={() => setCategoryFilter("standard")}
+              >
+                Standard ({counts.standard})
+              </button>
+              <button
+                type="button"
+                className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
+                onClick={() => setCategoryFilter("shorts")}
+              >
+                Shorts ({counts.shorts})
+              </button>
+              <button
+                type="button"
+                className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
+                onClick={() => setCategoryFilter("live")}
+              >
+                Live ({counts.live})
+              </button>
+            </div>
+          )}
 
           <p className="result-count" style={{ marginTop: 0 }}>
             {categoryFilter === "all"
