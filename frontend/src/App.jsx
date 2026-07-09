@@ -2629,7 +2629,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <span className="dot" />
-          <h1>YT Data Tool</h1>
+          <h1>YT Pool</h1>
         </div>
         <nav className="sidebar-nav">
           {TABS.map((t) => (

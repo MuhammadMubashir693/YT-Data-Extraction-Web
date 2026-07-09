@@ -76,44 +76,87 @@ async function ytFetchWithPaginationDelay(resource, params, pageNumber = 0) {
   return ytFetch(resource, params);
 }
 
-// ── Playlist cache ───────────────────────────────────────────────────────
+// ── Generic in-memory response cache ─────────────────────────────────────
 //
-// Fully assembling a playlist requires paging through playlistItems.list
-// (50/page) and then videos.list (50/page) for every video in it — for a
-// large playlist that's dozens of sequential YouTube API calls. Without
-// caching, that entire process re-ran on every request for the same
-// playlist, including sort changes and "View more videos" pagination clicks,
-// even though the underlying playlist contents hadn't changed. We cache the
-// fully-assembled (unsorted) result per playlistId for a short window so
-// repeat requests are served from memory instead of hitting YouTube again.
+// A handful of endpoints wrap expensive, multi-call YouTube API work
+// (paging through playlistItems/search/comments, then videos.list for
+// details) behind a single request. Repeat requests for the same underlying
+// resource — revisiting a channel, changing a sort dropdown, re-opening a
+// video already looked at — shouldn't re-run all of that work when the
+// underlying data is very unlikely to have changed in the meantime. Each
+// cache below is a small LRU-ish TTL cache: keyed by whatever uniquely
+// identifies the request (an ID, or an ID + the filter params that affect
+// which YouTube calls get made), holding whatever we'd otherwise recompute.
+// Sort order is intentionally excluded from cache keys — sorting is cheap
+// and happens in-memory after a cache hit, same as the original playlist
+// cache this was generalized from.
 
-const PLAYLIST_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const PLAYLIST_CACHE_MAX_ENTRIES = 50;
-const playlistCache = new Map(); // playlistId -> { playlistInfo, items, expiresAt }
+function createCache({ ttlMs, maxEntries }) {
+  const store = new Map(); // key -> { value, expiresAt }
 
-function getCachedPlaylist(playlistId) {
-  const entry = playlistCache.get(playlistId);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    playlistCache.delete(playlistId);
-    return null;
+  function get(key) {
+    const entry = store.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      store.delete(key);
+      return null;
+    }
+    // Refresh recency so frequently-hit keys survive eviction longer.
+    store.delete(key);
+    store.set(key, entry);
+    return entry.value;
   }
-  // Refresh recency so frequently-viewed playlists survive eviction longer.
-  playlistCache.delete(playlistId);
-  playlistCache.set(playlistId, entry);
-  return entry;
+
+  function set(key, value) {
+    if (store.size >= maxEntries) {
+      const oldestKey = store.keys().next().value;
+      store.delete(oldestKey);
+    }
+    store.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+
+  function del(key) {
+    store.delete(key);
+  }
+
+  return { get, set, del };
 }
 
-function setCachedPlaylist(playlistId, { playlistInfo, items }) {
-  if (playlistCache.size >= PLAYLIST_CACHE_MAX_ENTRIES) {
-    const oldestKey = playlistCache.keys().next().value;
-    playlistCache.delete(oldestKey);
-  }
-  playlistCache.set(playlistId, {
-    playlistInfo,
-    items,
-    expiresAt: Date.now() + PLAYLIST_CACHE_TTL_MS,
-  });
+// playlistId -> { playlistInfo, items } — full assembled playlist contents.
+const playlistCache = createCache({ ttlMs: 10 * 60 * 1000, maxEntries: 50 });
+
+// resolved channelId -> shaped channel details object (Part 3).
+const channelCache = createCache({ ttlMs: 10 * 60 * 1000, maxEntries: 100 });
+
+// channelId -> { channelId, playlists } — pages through every playlist the
+// channel has, so a cache hit skips a potentially large number of sequential
+// playlists.list calls entirely.
+const channelPlaylistsCache = createCache({ ttlMs: 10 * 60 * 1000, maxEntries: 50 });
+
+// videoId -> shaped video details object (Part 1), including the resolved
+// channel thumbnail (itself an extra API call on a miss).
+const videoCache = createCache({ ttlMs: 10 * 60 * 1000, maxEntries: 200 });
+
+// `${channelId}:${count}:${pageToken}` -> { videos, uploadsPlaylistId, nextPageToken, prevPageToken }
+const channelLatestVideosCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
+
+// `${videoId}:${apiOrder}:${pageToken}:${maxResults}` -> { threads, totalCommentCount, nextPageToken }
+// Keyed on API-affecting params only; keyword/date filtering and thread sort
+// happen after the cache lookup so those can still change per request.
+const commentsCache = createCache({ ttlMs: 3 * 60 * 1000, maxEntries: 100 });
+
+// Search-style endpoints (channel-videos, search-videos, search-channels,
+// search-playlists) all follow the same shape: page through `search`,
+// batch-fetch full details, then filter. That whole pipeline is cached
+// keyed on every param that affects it (everything except `sort`), so
+// re-sorting existing results is instant instead of re-querying YouTube.
+const channelVideosCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
+const searchVideosCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
+const searchChannelsCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
+const searchPlaylistsCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
+
+function cacheKey(parts) {
+  return JSON.stringify(parts);
 }
 
 /**
@@ -453,30 +496,39 @@ app.get("/api/video", async (req, res) => {
     if (!vid) {
       return res.status(400).json({ error: "Could not parse a valid video ID from the input." });
     }
-    const data = await ytFetch("videos", {
-      part: "snippet,contentDetails,statistics,liveStreamingDetails",
-      id: vid,
-    });
-    if (!data.items?.length) {
-      return res.status(404).json({ error: "No video found with that ID." });
-    }
-    const item = data.items[0];
-    const shaped = shapeVideo(item, vid);
 
-    // Single-item lookup only — fetch the uploading channel's avatar so the
-    // Video Player tab can show a small channel profile picture. Not done
-    // for list endpoints (search/playlist/channel-videos) to avoid an extra
-    // API call per item.
-    try {
-      const channelId = item.snippet?.channelId;
-      if (channelId) {
-        const chData = await ytFetch("channels", { part: "snippet", id: channelId });
-        const chThumb = chData.items?.[0]?.snippet?.thumbnails;
-        shaped.channelThumbnail =
-          chThumb?.high?.url || chThumb?.medium?.url || chThumb?.default?.url || null;
+    // A video lookup does 1-2 API calls (video details, plus a channel
+    // lookup for the avatar) — cache the finished shape so revisiting the
+    // same video (e.g. navigating back to the Video Player tab) is free.
+    let shaped = videoCache.get(vid);
+    if (!shaped) {
+      const data = await ytFetch("videos", {
+        part: "snippet,contentDetails,statistics,liveStreamingDetails",
+        id: vid,
+      });
+      if (!data.items?.length) {
+        return res.status(404).json({ error: "No video found with that ID." });
       }
-    } catch {
-      shaped.channelThumbnail = null;
+      const item = data.items[0];
+      shaped = shapeVideo(item, vid);
+
+      // Single-item lookup only — fetch the uploading channel's avatar so the
+      // Video Player tab can show a small channel profile picture. Not done
+      // for list endpoints (search/playlist/channel-videos) to avoid an extra
+      // API call per item.
+      try {
+        const channelId = item.snippet?.channelId;
+        if (channelId) {
+          const chData = await ytFetch("channels", { part: "snippet", id: channelId });
+          const chThumb = chData.items?.[0]?.snippet?.thumbnails;
+          shaped.channelThumbnail =
+            chThumb?.high?.url || chThumb?.medium?.url || chThumb?.default?.url || null;
+        }
+      } catch {
+        shaped.channelThumbnail = null;
+      }
+
+      videoCache.set(vid, shaped);
     }
 
     res.json(shaped);
@@ -573,70 +625,90 @@ app.get("/api/channel-videos", async (req, res) => {
     const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
       (k) => k && k.trim()
     );
-    // For the YouTube search API q= param, use the combined keyword or the title keyword as the
-    // primary signal (the real filtering is done server-side after fetching full details)
-    const apiKeyword = keyword || keywordTitle || "";
 
-    const params = {
-      part: "snippet",
-      channelId,
-      maxResults: 50,
-      order: "date",
-      type: "video",
-    };
-    if (durationFilter) params.videoDuration = durationFilter;
-    if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
-    if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
-    if (mode === "keyword" && apiKeyword) params.q = apiKeyword;
+    // Paging through search + batch-fetching full video details is the
+    // expensive part. Cache the filtered-but-unsorted result set keyed on
+    // every param that affects it (i.e. everything except `sort`), so
+    // changing just the sort dropdown re-sorts in memory instead of
+    // re-running the whole search.
+    const cvKey = cacheKey({
+      channelId, mode, keyword, keywordTitle, keywordDescription, keywordChannel,
+      startDate, endDate, durationFilter, matchMode, limit,
+    });
+    let fullItems = channelVideosCache.get(cvKey);
+    if (!fullItems) {
+      // For the YouTube search API q= param, use the combined keyword or the title keyword as the
+      // primary signal (the real filtering is done server-side after fetching full details)
+      const apiKeyword = keyword || keywordTitle || "";
 
-    let videoIds = [];
-    let nextPage;
-    let pageNumber = 0;
-    do {
-      const p = { ...params };
-      if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-      for (const item of resp.items || []) {
-        const vidId = item.id?.videoId;
-        if (vidId) videoIds.push(vidId);
+      const params = {
+        part: "snippet",
+        channelId,
+        maxResults: 50,
+        order: "date",
+        type: "video",
+      };
+      if (durationFilter) params.videoDuration = durationFilter;
+      if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
+      if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
+      if (mode === "keyword" && apiKeyword) params.q = apiKeyword;
+
+      let videoIds = [];
+      let nextPage;
+      let pageNumber = 0;
+      do {
+        const p = { ...params };
+        if (nextPage) p.pageToken = nextPage;
+        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
+        for (const item of resp.items || []) {
+          const vidId = item.id?.videoId;
+          if (vidId) videoIds.push(vidId);
+        }
+        nextPage = resp.nextPageToken;
+        if (videoIds.length >= limit) break;
+        pageNumber += 1;
+      } while (nextPage);
+
+      videoIds = videoIds.slice(0, limit);
+
+      if (!videoIds.length) {
+        fullItems = [];
+      } else {
+        fullItems = [];
+        for (let i = 0; i < videoIds.length; i += 50) {
+          const batch = videoIds.slice(i, i + 50);
+          const vresp = await ytFetch("videos", {
+            part: "snippet,contentDetails,statistics,liveStreamingDetails",
+            id: batch.join(","),
+          });
+          fullItems.push(...(vresp.items || []));
+        }
+
+        if (mode === "keyword") {
+          if (hasPerField) {
+            fullItems = fullItems.filter((v) =>
+              keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
+            );
+          } else if (keyword) {
+            fullItems = fullItems.filter((v) =>
+              keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
+            );
+          }
+        }
       }
-      nextPage = resp.nextPageToken;
-      if (videoIds.length >= limit) break;
-      pageNumber += 1;
-    } while (nextPage);
 
-    videoIds = videoIds.slice(0, limit);
+      channelVideosCache.set(cvKey, fullItems);
+    }
 
-    if (!videoIds.length) {
+    if (!fullItems.length) {
       return res.json({ videos: [], count: 0 });
     }
 
-    let fullItems = [];
-    for (let i = 0; i < videoIds.length; i += 50) {
-      const batch = videoIds.slice(i, i + 50);
-      const vresp = await ytFetch("videos", {
-        part: "snippet,contentDetails,statistics,liveStreamingDetails",
-        id: batch.join(","),
-      });
-      fullItems.push(...(vresp.items || []));
-    }
-
-    if (mode === "keyword") {
-      if (hasPerField) {
-        fullItems = fullItems.filter((v) =>
-          keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
-        );
-      } else if (keyword) {
-        fullItems = fullItems.filter((v) =>
-          keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
-        );
-      }
-    }
-
+    const sortedItems = fullItems.slice();
     const sort = String(req.query.sort || "relevance").toLowerCase();
-    sortVideos(fullItems, sort);
+    sortVideos(sortedItems, sort);
 
-    const videos = fullItems.map((v) => shapeVideo(v));
+    const videos = sortedItems.map((v) => shapeVideo(v));
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
@@ -684,45 +756,56 @@ app.get("/api/channel-latest-videos", async (req, res) => {
       return res.status(400).json({ error: "count must be an integer between 1 and 50 (inclusive)." });
     }
 
-    const chResp = await ytFetch("channels", { part: "contentDetails", id: channelId });
-    const uploadsPlaylistId = chResp.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-    if (!uploadsPlaylistId) {
-      return res.status(404).json({ error: "No uploads playlist found for that channel." });
+    // Each page here is 2-3 sequential API calls (channel lookup, playlistItems
+    // page, videos batch). Cache the finished page per channelId+count+pageToken
+    // so re-visiting the same page of a channel's latest uploads is free.
+    const key = cacheKey({ channelId, count, pageToken: pageToken || "" });
+    let result = channelLatestVideosCache.get(key);
+    if (!result) {
+      const chResp = await ytFetch("channels", { part: "contentDetails", id: channelId });
+      const uploadsPlaylistId = chResp.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+      if (!uploadsPlaylistId) {
+        return res.status(404).json({ error: "No uploads playlist found for that channel." });
+      }
+
+      const itemsParams = {
+        part: "snippet",
+        playlistId: uploadsPlaylistId,
+        maxResults: count,
+      };
+      if (pageToken) itemsParams.pageToken = pageToken;
+
+      const itemsResp = await ytFetch("playlistItems", itemsParams);
+      const nextPageToken = itemsResp.nextPageToken || null;
+      const prevPageToken = itemsResp.prevPageToken || null;
+
+      const videoIds = (itemsResp.items || [])
+        .map((item) => item.snippet?.resourceId?.videoId)
+        .filter(Boolean);
+
+      if (!videoIds.length) {
+        result = { videos: [], count: 0, uploadsPlaylistId, nextPageToken, prevPageToken };
+      } else {
+        const vResp = await ytFetch("videos", {
+          part: "snippet,contentDetails,statistics,liveStreamingDetails",
+          id: videoIds.join(","),
+        });
+
+        // The uploads playlist is expected to already return newest-first within
+        // each page, but we don't rely on that assumption — sort explicitly by
+        // publish date so ordering within the page is guaranteed regardless.
+        const fullItems = (vResp.items || []).sort((a, b) =>
+          b.snippet.publishedAt.localeCompare(a.snippet.publishedAt)
+        );
+
+        const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
+        result = { videos, count: videos.length, uploadsPlaylistId, nextPageToken, prevPageToken };
+      }
+
+      channelLatestVideosCache.set(key, result);
     }
 
-    const itemsParams = {
-      part: "snippet",
-      playlistId: uploadsPlaylistId,
-      maxResults: count,
-    };
-    if (pageToken) itemsParams.pageToken = pageToken;
-
-    const itemsResp = await ytFetch("playlistItems", itemsParams);
-    const nextPageToken = itemsResp.nextPageToken || null;
-    const prevPageToken = itemsResp.prevPageToken || null;
-
-    const videoIds = (itemsResp.items || [])
-      .map((item) => item.snippet?.resourceId?.videoId)
-      .filter(Boolean);
-
-    if (!videoIds.length) {
-      return res.json({ videos: [], count: 0, uploadsPlaylistId, nextPageToken, prevPageToken });
-    }
-
-    const vResp = await ytFetch("videos", {
-      part: "snippet,contentDetails,statistics,liveStreamingDetails",
-      id: videoIds.join(","),
-    });
-
-    // The uploads playlist is expected to already return newest-first within
-    // each page, but we don't rely on that assumption — sort explicitly by
-    // publish date so ordering within the page is guaranteed regardless.
-    const fullItems = (vResp.items || []).sort((a, b) =>
-      b.snippet.publishedAt.localeCompare(a.snippet.publishedAt)
-    );
-
-    const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
-    res.json({ videos, count: videos.length, uploadsPlaylistId, nextPageToken, prevPageToken });
+    res.json(result);
   } catch (err) {
     handleError(res, err);
   }
@@ -754,56 +837,67 @@ app.get("/api/channel", async (req, res) => {
     if (!chId) {
       return res.status(400).json({ error: "Could not parse a valid channel ID from the input." });
     }
-    const data = await ytFetch("channels", {
-      part: "snippet,brandingSettings,statistics,contentDetails",
-      id: chId,
-    });
-    if (!data.items?.length) {
-      return res.status(404).json({ error: "No channel found with that ID." });
+
+    // Cache the shaped channel object by its resolved ID — repeat lookups of
+    // the same channel (including via a different handle/URL that resolves
+    // to the same ID) skip the channels.list call entirely.
+    let shaped = channelCache.get(chId);
+    if (!shaped) {
+      const data = await ytFetch("channels", {
+        part: "snippet,brandingSettings,statistics,contentDetails",
+        id: chId,
+      });
+      if (!data.items?.length) {
+        return res.status(404).json({ error: "No channel found with that ID." });
+      }
+      const ch = data.items[0];
+      const sn = ch.snippet;
+      const bs = ch.brandingSettings || {};
+      const st = ch.statistics || {};
+      const cd = ch.contentDetails || {};
+      const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
+      const thumb = sn.thumbnails || {};
+      const thumbUrl =
+        thumb.high?.url ||
+        thumb.maxres?.url ||
+        thumb.standard?.url ||
+        thumb.medium?.url ||
+        thumb.default?.url ||
+        null;
+      const banner =
+        bs.image?.bannerExternalUrl ||
+        bs.image?.bannerImageUrl ||
+        bs.image?.bannerMobileImageUrl ||
+        bs.image?.bannerTabletImageUrl ||
+        bs.image?.bannerTabletLowImageUrl ||
+        bs.image?.bannerTvImageUrl ||
+        bs.image?.bannerTvLowImageUrl ||
+        bs.image?.bannerMobileLowImageUrl ||
+        null;
+
+      shaped = {
+        channelId: ch.id,
+        title: sn.title,
+        description: (sn.description || "").trim(),
+        createdAt: fmtDatetime(sn.publishedAt),
+        customUrl: sn.customUrl || "N/A",
+        country: fmtCountry(sn.country),
+        thumbnail: thumbUrl,
+        banner,
+        videoCount: st.videoCount ?? "N/A",
+        subscriberCount: st.subscriberCount ?? "N/A",
+        viewCount: st.viewCount ?? "N/A",
+        uploadsPlaylistId,
+      };
+
+      channelCache.set(chId, shaped);
     }
-    const ch = data.items[0];
-    const sn = ch.snippet;
-    const bs = ch.brandingSettings || {};
-    const st = ch.statistics || {};
-    const cd = ch.contentDetails || {};
-    const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
-    const thumb = sn.thumbnails || {};
-    const thumbUrl =
-      thumb.high?.url ||
-      thumb.maxres?.url ||
-      thumb.standard?.url ||
-      thumb.medium?.url ||
-      thumb.default?.url ||
-      null;
-    const banner =
-      bs.image?.bannerExternalUrl ||
-      bs.image?.bannerImageUrl ||
-      bs.image?.bannerMobileImageUrl ||
-      bs.image?.bannerTabletImageUrl ||
-      bs.image?.bannerTabletLowImageUrl ||
-      bs.image?.bannerTvImageUrl ||
-      bs.image?.bannerTvLowImageUrl ||
-      bs.image?.bannerMobileLowImageUrl ||
-      null;
 
     // Note: public playlists are intentionally NOT fetched here. Listing a
     // channel's playlists can require many sequential playlists.list calls
     // for channels with lots of playlists, so that work only happens when
     // the user explicitly requests it via GET /api/channel-playlists.
-    res.json({
-      channelId: ch.id,
-      title: sn.title,
-      description: (sn.description || "").trim(),
-      createdAt: fmtDatetime(sn.publishedAt),
-      customUrl: sn.customUrl || "N/A",
-      country: fmtCountry(sn.country),
-      thumbnail: thumbUrl,
-      banner,
-      videoCount: st.videoCount ?? "N/A",
-      subscriberCount: st.subscriberCount ?? "N/A",
-      viewCount: st.viewCount ?? "N/A",
-      uploadsPlaylistId,
-    });
+    res.json(shaped);
   } catch (err) {
     handleError(res, err);
   }
@@ -838,87 +932,97 @@ app.get("/api/channel-playlists", async (req, res) => {
       return res.status(400).json({ error: "A valid channelId is required." });
     }
 
-    const data = await ytFetch("channels", {
-      part: "snippet,statistics,contentDetails",
-      id: channelId,
-    });
-    if (!data.items?.length) {
-      return res.status(404).json({ error: "No channel found with that ID." });
-    }
-    const ch = data.items[0];
-    const sn = ch.snippet;
-    const st = ch.statistics || {};
-    const cd = ch.contentDetails || {};
-    const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
-    const thumb = sn.thumbnails || {};
-    const thumbUrl =
-      thumb.high?.url ||
-      thumb.maxres?.url ||
-      thumb.standard?.url ||
-      thumb.medium?.url ||
-      thumb.default?.url ||
-      null;
+    // This walks every page of the channel's playlists.list results — for a
+    // channel with hundreds of playlists that's a lot of sequential calls.
+    // Cache the finished list per channelId so re-fetching (e.g. navigating
+    // away and back) doesn't repeat that work.
+    let result = channelPlaylistsCache.get(channelId);
+    if (!result) {
+      const data = await ytFetch("channels", {
+        part: "snippet,statistics,contentDetails",
+        id: channelId,
+      });
+      if (!data.items?.length) {
+        return res.status(404).json({ error: "No channel found with that ID." });
+      }
+      const ch = data.items[0];
+      const sn = ch.snippet;
+      const st = ch.statistics || {};
+      const cd = ch.contentDetails || {};
+      const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
+      const thumb = sn.thumbnails || {};
+      const thumbUrl =
+        thumb.high?.url ||
+        thumb.maxres?.url ||
+        thumb.standard?.url ||
+        thumb.medium?.url ||
+        thumb.default?.url ||
+        null;
 
-    const playlists = [];
-    let playlistPageToken;
-    let playlistPageNumber = 0;
-    do {
-      const playlistResp = await ytFetchWithPaginationDelay(
-        "playlists",
-        {
-          part: "snippet,contentDetails",
+      const playlists = [];
+      let playlistPageToken;
+      let playlistPageNumber = 0;
+      do {
+        const playlistResp = await ytFetchWithPaginationDelay(
+          "playlists",
+          {
+            part: "snippet,contentDetails",
+            channelId: ch.id,
+            maxResults: 50,
+            pageToken: playlistPageToken,
+          },
+          playlistPageNumber
+        );
+        for (const item of playlistResp.items || []) {
+          const rawCount = item.contentDetails?.itemCount;
+          const plThumb = item.snippet?.thumbnails || {};
+          playlists.push({
+            playlistId: item.id,
+            playlistUrl: `https://www.youtube.com/playlist?list=${item.id}`,
+            title: item.snippet?.title || "N/A",
+            channelId: item.snippet?.channelId || ch.id,
+            publishedAt: fmtDatetime(item.snippet?.publishedAt),
+            publishedAtRaw: item.snippet?.publishedAt || null,
+            videoCount: rawCount ?? "N/A",
+            videoCountRaw: rawCount != null ? Number(rawCount) : null,
+            thumbnail:
+              plThumb.maxres?.url ||
+              plThumb.standard?.url ||
+              plThumb.high?.url ||
+              plThumb.medium?.url ||
+              plThumb.default?.url ||
+              null,
+          });
+        }
+        playlistPageToken = playlistResp.nextPageToken;
+        playlistPageNumber += 1;
+      } while (playlistPageToken);
+
+      // The channel's uploads playlist (contentDetails.relatedPlaylists.uploads) is
+      // never returned by playlists.list?channelId=..., since it's a synthetic
+      // playlist rather than a user-created one. Add it in ourselves so it shows
+      // up alongside the channel's other playlists — its videos can be viewed the
+      // same way as any other playlist, via GET /api/playlist?q=<uploadsPlaylistId>.
+      if (uploadsPlaylistId && !playlists.some((p) => p.playlistId === uploadsPlaylistId)) {
+        const rawCount = st.videoCount;
+        playlists.unshift({
+          playlistId: uploadsPlaylistId,
+          playlistUrl: `https://www.youtube.com/playlist?list=${uploadsPlaylistId}`,
+          title: "Uploads",
           channelId: ch.id,
-          maxResults: 50,
-          pageToken: playlistPageToken,
-        },
-        playlistPageNumber
-      );
-      for (const item of playlistResp.items || []) {
-        const rawCount = item.contentDetails?.itemCount;
-        const plThumb = item.snippet?.thumbnails || {};
-        playlists.push({
-          playlistId: item.id,
-          playlistUrl: `https://www.youtube.com/playlist?list=${item.id}`,
-          title: item.snippet?.title || "N/A",
-          channelId: item.snippet?.channelId || ch.id,
-          publishedAt: fmtDatetime(item.snippet?.publishedAt),
-          publishedAtRaw: item.snippet?.publishedAt || null,
+          publishedAt: fmtDatetime(sn.publishedAt),
+          publishedAtRaw: sn.publishedAt || null,
           videoCount: rawCount ?? "N/A",
           videoCountRaw: rawCount != null ? Number(rawCount) : null,
-          thumbnail:
-            plThumb.maxres?.url ||
-            plThumb.standard?.url ||
-            plThumb.high?.url ||
-            plThumb.medium?.url ||
-            plThumb.default?.url ||
-            null,
+          thumbnail: thumbUrl,
         });
       }
-      playlistPageToken = playlistResp.nextPageToken;
-      playlistPageNumber += 1;
-    } while (playlistPageToken);
 
-    // The channel's uploads playlist (contentDetails.relatedPlaylists.uploads) is
-    // never returned by playlists.list?channelId=..., since it's a synthetic
-    // playlist rather than a user-created one. Add it in ourselves so it shows
-    // up alongside the channel's other playlists — its videos can be viewed the
-    // same way as any other playlist, via GET /api/playlist?q=<uploadsPlaylistId>.
-    if (uploadsPlaylistId && !playlists.some((p) => p.playlistId === uploadsPlaylistId)) {
-      const rawCount = st.videoCount;
-      playlists.unshift({
-        playlistId: uploadsPlaylistId,
-        playlistUrl: `https://www.youtube.com/playlist?list=${uploadsPlaylistId}`,
-        title: "Uploads",
-        channelId: ch.id,
-        publishedAt: fmtDatetime(sn.publishedAt),
-        publishedAtRaw: sn.publishedAt || null,
-        videoCount: rawCount ?? "N/A",
-        videoCountRaw: rawCount != null ? Number(rawCount) : null,
-        thumbnail: thumbUrl,
-      });
+      result = { channelId: ch.id, playlists };
+      channelPlaylistsCache.set(channelId, result);
     }
 
-    res.json({ channelId: ch.id, playlists });
+    res.json(result);
   } catch (err) {
     handleError(res, err);
   }
@@ -1031,28 +1135,37 @@ app.get("/api/comments", async (req, res) => {
     const endDate = req.query.endDate ? new Date(`${req.query.endDate}T23:59:59Z`) : null;
     const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
 
-    let totalCommentCount = null;
-    try {
-      const videoStats = await ytFetch("videos", { part: "statistics", id: videoId });
-      const raw = videoStats.items?.[0]?.statistics?.commentCount;
-      totalCommentCount = raw != null ? Number(raw) : null;
-    } catch {
-      // Non-fatal: leave totalCommentCount as null if this lookup fails.
-    }
-
     const requestedMax = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 20, 1), 50);
-    const params = {
-      part: "snippet,replies",
-      videoId,
-      maxResults: requestedMax,
-      textFormat: "plainText",
-      order: apiOrder,
-    };
-    if (pageToken) params.pageToken = pageToken;
-    const resp = await ytFetch("commentThreads", params);
 
-    const threads = (resp.items || [])
-      .map((thread) => {
+    // Fetching this page of comment threads (plus the video-stats lookup for
+    // the total count) is 1-2 API calls. Keyword/date filtering and the final
+    // in-memory sort don't need fresh data, so cache the mapped-but-unfiltered
+    // page keyed on everything that *does* require a new YouTube call:
+    // videoId, the API-level order ("relevance" vs "time" — shared by
+    // latest/earliest), pageToken, and page size.
+    const commentsKey = cacheKey({ videoId, apiOrder, pageToken: pageToken || "", requestedMax });
+    let pageData = commentsCache.get(commentsKey);
+    if (!pageData) {
+      let totalCommentCount = null;
+      try {
+        const videoStats = await ytFetch("videos", { part: "statistics", id: videoId });
+        const rawCount = videoStats.items?.[0]?.statistics?.commentCount;
+        totalCommentCount = rawCount != null ? Number(rawCount) : null;
+      } catch {
+        // Non-fatal: leave totalCommentCount as null if this lookup fails.
+      }
+
+      const params = {
+        part: "snippet,replies",
+        videoId,
+        maxResults: requestedMax,
+        textFormat: "plainText",
+        order: apiOrder,
+      };
+      if (pageToken) params.pageToken = pageToken;
+      const resp = await ytFetch("commentThreads", params);
+
+      const mappedThreads = (resp.items || []).map((thread) => {
         const top = thread.snippet.topLevelComment;
         const sn = top.snippet;
         const replies = (thread.replies?.comments || []).map((reply) => {
@@ -1086,7 +1199,18 @@ app.get("/api/comments", async (req, res) => {
           replies,
           publishedAtRaw: sn.publishedAt,
         };
-      })
+      });
+
+      pageData = {
+        totalCommentCount,
+        threads: mappedThreads,
+        nextPageToken: resp.nextPageToken || null,
+      };
+      commentsCache.set(commentsKey, pageData);
+    }
+
+    const totalCommentCount = pageData.totalCommentCount;
+    const threads = pageData.threads
       .filter((thread) => {
         if (keyword) {
           const threadText = `${thread.textDisplay} ${thread.textOriginal}`.toLowerCase();
@@ -1116,7 +1240,7 @@ app.get("/api/comments", async (req, res) => {
       threads.sort((a, b) => Number(a.likeCount) - Number(b.likeCount));
     }
 
-    const nextPageTokenOut = resp.nextPageToken || null;
+    const nextPageTokenOut = pageData.nextPageToken;
 
     res.json({
       videoId,
@@ -1358,11 +1482,10 @@ app.get("/api/playlist", async (req, res) => {
     // Serve from cache when possible — this is what makes sort changes and
     // "View more videos" pagination fast: they no longer re-fetch the whole
     // playlist from YouTube, they just re-sort/re-slice data already in memory.
-    let cached = getCachedPlaylist(playlistId);
+    let cached = playlistCache.get(playlistId);
     if (!cached) {
-      const fetched = await fetchFullPlaylistFromYouTube(playlistId);
-      cached = fetched;
-      setCachedPlaylist(playlistId, fetched);
+      cached = await fetchFullPlaylistFromYouTube(playlistId);
+      playlistCache.set(playlistId, cached);
     }
 
     const { playlistInfo, items } = cached;
@@ -1472,66 +1595,82 @@ app.get("/api/search-videos", async (req, res) => {
 
     const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
 
-    // Use the combined keyword or title keyword for the YouTube search API q= param
-    const apiKeyword = keyword || keywordTitle || "";
+    // Cache the filtered-but-unsorted result set keyed on every param except
+    // `sort` — re-sorting an already-fetched search is instant this way.
+    const svKey = cacheKey({
+      keyword, keywordTitle, keywordDescription, keywordChannel,
+      startDate, endDate, durationFilter, matchMode, limit,
+    });
+    let fullItems = searchVideosCache.get(svKey);
+    if (!fullItems) {
+      // Use the combined keyword or title keyword for the YouTube search API q= param
+      const apiKeyword = keyword || keywordTitle || "";
 
-    const params = {
-      part: "snippet",
-      maxResults: 50,
-      order: "date",
-      type: "video",
-    };
-    if (apiKeyword) params.q = apiKeyword;
-    if (durationFilter) params.videoDuration = durationFilter;
-    if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
-    if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
+      const params = {
+        part: "snippet",
+        maxResults: 50,
+        order: "date",
+        type: "video",
+      };
+      if (apiKeyword) params.q = apiKeyword;
+      if (durationFilter) params.videoDuration = durationFilter;
+      if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
+      if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
 
-    let videoIds = [];
-    let nextPage;
-    let pageNumber = 0;
-    do {
-      const p = { ...params };
-      if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-      for (const item of resp.items || []) {
-        const vidId = item.id?.videoId;
-        if (vidId) videoIds.push(vidId);
+      let videoIds = [];
+      let nextPage;
+      let pageNumber = 0;
+      do {
+        const p = { ...params };
+        if (nextPage) p.pageToken = nextPage;
+        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
+        for (const item of resp.items || []) {
+          const vidId = item.id?.videoId;
+          if (vidId) videoIds.push(vidId);
+        }
+        nextPage = resp.nextPageToken;
+        if (videoIds.length >= limit) break;
+        pageNumber += 1;
+      } while (nextPage);
+
+      videoIds = videoIds.slice(0, limit);
+
+      if (!videoIds.length) {
+        fullItems = [];
+      } else {
+        fullItems = [];
+        for (let i = 0; i < videoIds.length; i += 50) {
+          const batch = videoIds.slice(i, i + 50);
+          const vresp = await ytFetch("videos", {
+            part: "snippet,contentDetails,statistics,liveStreamingDetails",
+            id: batch.join(","),
+          });
+          fullItems.push(...(vresp.items || []));
+        }
+
+        if (hasPerField) {
+          fullItems = fullItems.filter((v) =>
+            keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
+          );
+        } else if (keyword) {
+          fullItems = fullItems.filter((v) =>
+            keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
+          );
+        }
       }
-      nextPage = resp.nextPageToken;
-      if (videoIds.length >= limit) break;
-      pageNumber += 1;
-    } while (nextPage);
 
-    videoIds = videoIds.slice(0, limit);
+      searchVideosCache.set(svKey, fullItems);
+    }
 
-    if (!videoIds.length) {
+    if (!fullItems.length) {
       return res.json({ videos: [], count: 0 });
     }
 
-    let fullItems = [];
-    for (let i = 0; i < videoIds.length; i += 50) {
-      const batch = videoIds.slice(i, i + 50);
-      const vresp = await ytFetch("videos", {
-        part: "snippet,contentDetails,statistics,liveStreamingDetails",
-        id: batch.join(","),
-      });
-      fullItems.push(...(vresp.items || []));
-    }
-
-    if (hasPerField) {
-      fullItems = fullItems.filter((v) =>
-        keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
-      );
-    } else if (keyword) {
-      fullItems = fullItems.filter((v) =>
-        keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
-      );
-    }
-
+    const sortedItems = fullItems.slice();
     const sort = String(req.query.sort || "relevance").toLowerCase();
-    sortVideos(fullItems, sort);
+    sortVideos(sortedItems, sort);
 
-    const videos = fullItems.map((v) => shapeVideo(v));
+    const videos = sortedItems.map((v) => shapeVideo(v));
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
@@ -1581,92 +1720,103 @@ app.get("/api/search-channels", async (req, res) => {
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
     const apiKeyword = keyword;
 
-    let channelIds = [];
-    let nextPageToken = null;
-    let prevPageToken = null;
+    // Cache the finished page/result set keyed on keyword+limit+pageToken —
+    // paging back and forth through the same search no longer re-hits
+    // YouTube each time.
+    const scKey = cacheKey({ keyword: apiKeyword, limit, pageToken: pageToken || "" });
+    let result = searchChannelsCache.get(scKey);
+    if (!result) {
+      let channelIds = [];
+      let nextPageToken = null;
+      let prevPageToken = null;
 
-    if (limit <= 50) {
-      // A single YouTube search page (≤ 50 results) maps 1:1 to one page of
-      // results here, so we can expose YouTube's own nextPageToken/
-      // prevPageToken directly for real forward/backward pagination.
-      const p = {
-        part: "snippet",
-        q: apiKeyword,
-        maxResults: limit,
-        type: "channel",
-      };
-      if (pageToken) p.pageToken = pageToken;
-      const resp = await ytFetch("search", p);
-      channelIds = (resp.items || []).map((item) => item.id?.channelId).filter(Boolean);
-      nextPageToken = resp.nextPageToken || null;
-      prevPageToken = resp.prevPageToken || null;
-    } else {
-      // Requests for more than one page's worth of results are aggregated
-      // into a single larger batch (no per-page nav exposed for this mode,
-      // since it already spans multiple underlying YouTube pages).
-      let nextPage;
-      let pageNumber = 0;
-      do {
+      if (limit <= 50) {
+        // A single YouTube search page (≤ 50 results) maps 1:1 to one page of
+        // results here, so we can expose YouTube's own nextPageToken/
+        // prevPageToken directly for real forward/backward pagination.
         const p = {
           part: "snippet",
           q: apiKeyword,
-          maxResults: 50,
+          maxResults: limit,
           type: "channel",
         };
-        if (nextPage) p.pageToken = nextPage;
-        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-        for (const item of resp.items || []) {
-          const cid = item.id?.channelId;
-          if (cid) channelIds.push(cid);
+        if (pageToken) p.pageToken = pageToken;
+        const resp = await ytFetch("search", p);
+        channelIds = (resp.items || []).map((item) => item.id?.channelId).filter(Boolean);
+        nextPageToken = resp.nextPageToken || null;
+        prevPageToken = resp.prevPageToken || null;
+      } else {
+        // Requests for more than one page's worth of results are aggregated
+        // into a single larger batch (no per-page nav exposed for this mode,
+        // since it already spans multiple underlying YouTube pages).
+        let nextPage;
+        let pageNumber = 0;
+        do {
+          const p = {
+            part: "snippet",
+            q: apiKeyword,
+            maxResults: 50,
+            type: "channel",
+          };
+          if (nextPage) p.pageToken = nextPage;
+          const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
+          for (const item of resp.items || []) {
+            const cid = item.id?.channelId;
+            if (cid) channelIds.push(cid);
+          }
+          nextPage = resp.nextPageToken;
+          if (channelIds.length >= limit) break;
+          pageNumber += 1;
+        } while (nextPage);
+        channelIds = channelIds.slice(0, limit);
+      }
+
+      if (!channelIds.length) {
+        result = { channels: [], count: 0, nextPageToken, prevPageToken };
+      } else {
+        let fullItems = [];
+        for (let i = 0; i < channelIds.length; i += 50) {
+          const batch = channelIds.slice(i, i + 50);
+          const resp = await ytFetch("channels", {
+            part: "snippet,statistics",
+            id: batch.join(","),
+          });
+          fullItems.push(...(resp.items || []));
         }
-        nextPage = resp.nextPageToken;
-        if (channelIds.length >= limit) break;
-        pageNumber += 1;
-      } while (nextPage);
-      channelIds = channelIds.slice(0, limit);
+
+        fullItems = fullItems.filter((ch) =>
+          keywordMatches([ch.snippet?.title || ""], keyword)
+        );
+
+        const channels = fullItems.map((ch) => {
+          const sn = ch.snippet || {};
+          const st = ch.statistics || {};
+          const thumb = sn.thumbnails || {};
+          return {
+            channelId: ch.id,
+            channelUrl: `https://www.youtube.com/channel/${ch.id}`,
+            title: sn.title || "N/A",
+            description: (sn.description || "").trim(),
+            country: fmtCountry(sn.country),
+            publishedAt: sn.publishedAt ? fmtDatetime(sn.publishedAt) : "N/A",
+            subscribers: st.subscriberCount ?? "N/A",
+            videoCount: st.videoCount ?? "N/A",
+            viewCount: st.viewCount ?? "N/A",
+            thumbnail:
+              thumb.high?.url ||
+              thumb.medium?.url ||
+              thumb.default?.url ||
+              null,
+          };
+        });
+
+        result = { channels, count: channels.length, nextPageToken, prevPageToken };
+      }
+
+      searchChannelsCache.set(scKey, result);
     }
 
-    if (!channelIds.length) {
-      return res.json({ channels: [], count: 0, nextPageToken, prevPageToken });
-    }
-
-    let fullItems = [];
-    for (let i = 0; i < channelIds.length; i += 50) {
-      const batch = channelIds.slice(i, i + 50);
-      const resp = await ytFetch("channels", {
-        part: "snippet,statistics",
-        id: batch.join(","),
-      });
-      fullItems.push(...(resp.items || []));
-    }
-
-    fullItems = fullItems.filter((ch) =>
-      keywordMatches([ch.snippet?.title || ""], keyword)
-    );
-
-    const channels = fullItems.map((ch) => {
-      const sn = ch.snippet || {};
-      const st = ch.statistics || {};
-      const thumb = sn.thumbnails || {};
-      return {
-        channelId: ch.id,
-        channelUrl: `https://www.youtube.com/channel/${ch.id}`,
-        title: sn.title || "N/A",
-        description: (sn.description || "").trim(),
-        country: fmtCountry(sn.country),
-        publishedAt: sn.publishedAt ? fmtDatetime(sn.publishedAt) : "N/A",
-        subscribers: st.subscriberCount ?? "N/A",
-        videoCount: st.videoCount ?? "N/A",
-        viewCount: st.viewCount ?? "N/A",
-        thumbnail:
-          thumb.high?.url ||
-          thumb.medium?.url ||
-          thumb.default?.url ||
-          null,
-      };
-    });
-
-    res.json({ channels, count: channels.length, nextPageToken, prevPageToken });
+    res.json(result);
   } catch (err) {
     handleError(res, err);
   }
@@ -1718,78 +1868,87 @@ app.get("/api/search-playlists", async (req, res) => {
 
     const apiKeyword = keyword || keywordTitle || "";
 
-    let playlistIds = [];
-    let nextPage;
-    let pageNumber = 0;
-    do {
-      const p = {
-        part: "snippet",
-        q: apiKeyword,
-        maxResults: 50,
-        type: "playlist",
-      };
-      if (nextPage) p.pageToken = nextPage;
-      const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-      for (const item of resp.items || []) {
-        const pid = item.id?.playlistId;
-        if (pid) playlistIds.push(pid);
+    // Cache the filtered result set keyed on the params that determine it —
+    // repeat searches (or minor UI re-renders triggering the same query)
+    // skip the search + playlists.list batch calls entirely.
+    const spKey = cacheKey({ keyword, keywordTitle, keywordChannel, limit });
+    let playlists = searchPlaylistsCache.get(spKey);
+    if (!playlists) {
+      let playlistIds = [];
+      let nextPage;
+      let pageNumber = 0;
+      do {
+        const p = {
+          part: "snippet",
+          q: apiKeyword,
+          maxResults: 50,
+          type: "playlist",
+        };
+        if (nextPage) p.pageToken = nextPage;
+        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
+        for (const item of resp.items || []) {
+          const pid = item.id?.playlistId;
+          if (pid) playlistIds.push(pid);
+        }
+        nextPage = resp.nextPageToken;
+        if (playlistIds.length >= limit) break;
+        pageNumber += 1;
+      } while (nextPage);
+
+      playlistIds = playlistIds.slice(0, limit);
+
+      if (!playlistIds.length) {
+        playlists = [];
+      } else {
+        let fullItems = [];
+        for (let i = 0; i < playlistIds.length; i += 50) {
+          const batch = playlistIds.slice(i, i + 50);
+          const resp = await ytFetch("playlists", {
+            part: "snippet,contentDetails",
+            id: batch.join(","),
+          });
+          fullItems.push(...(resp.items || []));
+        }
+
+        if (hasPerField) {
+          fullItems = fullItems.filter((pl) => {
+            const title = pl.snippet?.title || "";
+            const channelTitle = pl.snippet?.channelTitle || "";
+            if (keywordTitle && keywordTitle.trim() && !keywordMatches([title], keywordTitle)) return false;
+            if (keywordChannel && keywordChannel.trim() && !keywordMatches([channelTitle], keywordChannel)) return false;
+            return true;
+          });
+        } else if (keyword) {
+          fullItems = fullItems.filter((pl) =>
+            keywordMatches([pl.snippet?.title || "", pl.snippet?.channelTitle || ""], keyword)
+          );
+        }
+
+        playlists = fullItems.map((pl) => {
+          const sn = pl.snippet || {};
+          const cd = pl.contentDetails || {};
+          const thumb = sn.thumbnails || {};
+          const pid = pl.id;
+          return {
+            playlistId: pid,
+            playlistUrl: `https://www.youtube.com/playlist?list=${pid}`,
+            title: sn.title || "N/A",
+            channelId: sn.channelId || "N/A",
+            channelTitle: sn.channelTitle || "N/A",
+            publishedAt: sn.publishedAt ? fmtDatetime(sn.publishedAt) : "N/A",
+            videoCount: cd.itemCount ?? "N/A",
+            thumbnail:
+              thumb.standard?.url ||
+              thumb.high?.url ||
+              thumb.medium?.url ||
+              thumb.default?.url ||
+              null,
+          };
+        });
       }
-      nextPage = resp.nextPageToken;
-      if (playlistIds.length >= limit) break;
-      pageNumber += 1;
-    } while (nextPage);
 
-    playlistIds = playlistIds.slice(0, limit);
-
-    if (!playlistIds.length) {
-      return res.json({ playlists: [], count: 0 });
+      searchPlaylistsCache.set(spKey, playlists);
     }
-
-    let fullItems = [];
-    for (let i = 0; i < playlistIds.length; i += 50) {
-      const batch = playlistIds.slice(i, i + 50);
-      const resp = await ytFetch("playlists", {
-        part: "snippet,contentDetails",
-        id: batch.join(","),
-      });
-      fullItems.push(...(resp.items || []));
-    }
-
-    if (hasPerField) {
-      fullItems = fullItems.filter((pl) => {
-        const title = pl.snippet?.title || "";
-        const channelTitle = pl.snippet?.channelTitle || "";
-        if (keywordTitle && keywordTitle.trim() && !keywordMatches([title], keywordTitle)) return false;
-        if (keywordChannel && keywordChannel.trim() && !keywordMatches([channelTitle], keywordChannel)) return false;
-        return true;
-      });
-    } else if (keyword) {
-      fullItems = fullItems.filter((pl) =>
-        keywordMatches([pl.snippet?.title || "", pl.snippet?.channelTitle || ""], keyword)
-      );
-    }
-
-    const playlists = fullItems.map((pl) => {
-      const sn = pl.snippet || {};
-      const cd = pl.contentDetails || {};
-      const thumb = sn.thumbnails || {};
-      const pid = pl.id;
-      return {
-        playlistId: pid,
-        playlistUrl: `https://www.youtube.com/playlist?list=${pid}`,
-        title: sn.title || "N/A",
-        channelId: sn.channelId || "N/A",
-        channelTitle: sn.channelTitle || "N/A",
-        publishedAt: sn.publishedAt ? fmtDatetime(sn.publishedAt) : "N/A",
-        videoCount: cd.itemCount ?? "N/A",
-        thumbnail:
-          thumb.standard?.url ||
-          thumb.high?.url ||
-          thumb.medium?.url ||
-          thumb.default?.url ||
-          null,
-      };
-    });
 
     res.json({ playlists, count: playlists.length });
   } catch (err) {

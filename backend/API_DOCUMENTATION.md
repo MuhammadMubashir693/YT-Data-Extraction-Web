@@ -1,6 +1,6 @@
 # Backend API Documentation
 
-This document describes the backend JSON API for the YouTube Data Extraction Web app.
+This document describes the backend JSON API for the YT Pool Web app.
 The API is exposed under `/api` by `backend/server.js` and uses the YouTube Data API v3 plus a MongoDB-backed channel store.
 
 ## Base URL

@@ -1,4 +1,4 @@
-# YouTube Data Extraction Tool (Web)
+# YT Pool (Web)
 
 React + Node/Express web app that uses the YouTube Data API v3 to fetch
 video, channel, playlist, and comment information, and provides a UI for
