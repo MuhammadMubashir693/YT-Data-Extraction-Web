@@ -1619,7 +1619,7 @@ function ChannelTab({ active = true }) {
                 {!playlists && (
                   <>
                     <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
-                      Fetching a channel's playlists can take multiple API calls for channels with lots of playlists, so it's separate from the main channel lookup.
+                      Fetch public details from a channel.
                     </p>
                     <button
                       type="button"
@@ -1697,7 +1697,7 @@ function ChannelTab({ active = true }) {
               <div style={{ marginTop: 16 }}>
                 <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Latest Uploads</h3>
                 <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
-                  Pull n latest videos from a channel.
+                  Pull latest videos from a channel.
                 </p>
                 <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
                   <div className="field" style={{ maxWidth: 160 }}>
