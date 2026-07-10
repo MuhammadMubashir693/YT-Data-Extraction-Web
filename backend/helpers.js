@@ -278,9 +278,9 @@ export function shapeVideo(item, idOverride) {
       `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`,
     description: (sid.description || "").trim(),
     publishedAtRaw: sid.publishedAt,
-    scheduledStartTime: liveDetails.scheduledStartTime || null,
-    actualStartTime: liveDetails.actualStartTime || null,
-    actualEndTime: liveDetails.actualEndTime || null,
+    scheduledStartTime: fmtDatetime(liveDetails.scheduledStartTime) || null,
+    actualStartTime: fmtDatetime(liveDetails.actualStartTime) || null,
+    actualEndTime: fmtDatetime(liveDetails.actualEndTime) || null,
     liveBroadcastContent: sid.liveBroadcastContent || "none",
   };
 }
