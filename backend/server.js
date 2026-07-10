@@ -728,7 +728,7 @@ app.get("/api/channel-videos", async (req, res) => {
  * @swagger
  * /api/channel-latest-videos:
  *   get:
- *     summary: Get latest uploads from a channel (paginated)
+ *     summary: Get latest uploads from a channel
  *     parameters:
  *       - in: query
  *         name: channelId
@@ -1441,7 +1441,7 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
  * @swagger
  * /api/playlist:
  *   get:
- *     summary: Get all videos from a playlist (cached)
+ *     summary: Get all videos from a playlist
  *     parameters:
  *       - in: query
  *         name: q

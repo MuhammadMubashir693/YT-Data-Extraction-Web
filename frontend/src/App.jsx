@@ -1060,7 +1060,7 @@ function ChannelSearchTab() {
       {videos && (
         <>
           <p className="result-count">Result count: {fmtCount(videos.length)}</p>
-          <ExportBar data={sortedVideos} filenameBase="video-search-results" />
+          <ExportBar data={displayedVideos} filenameBase="video-search-results" />
 
           {/* Category buttons */}
           {!liveFilter && (
@@ -1735,7 +1735,7 @@ function ChannelTab({ active = true }) {
                 <ErrorBox message={latestError} />
                 {latestVideos && (
                   <>
-                    <ExportBar data={latestVideos} filenameBase="channel-latest-videos" />
+                    <ExportBar data={displayedVideos} filenameBase="channel-latest-videos" />
 
                     {/* Category buttons */}
                     <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
@@ -2381,7 +2381,7 @@ function PlaylistTab({ active = true }) {
             </div>
           </div>
           <ExportBar
-            data={{ ...(playlistInfo || {}), videos: filteredVideos }}
+            data={{ ...(playlistInfo || {}), videos: displayedVideos }}
             filenameBase="playlist-details"
           />
           {/* Category buttons */}
@@ -2607,7 +2607,7 @@ export default function App() {
     fetch("/api/health")
       .then((r) => r.json())
       .then((d) => setApiKeySet(!!d.apiKeySet))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // ── Restore scroll position on tab change ──
