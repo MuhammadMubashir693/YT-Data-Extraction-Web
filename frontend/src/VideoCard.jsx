@@ -1,7 +1,7 @@
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
-import { fmtCount, fmtDatetime } from "../../backend/helpers.js";
+import { fmtCount } from "../../backend/helpers.js";
 
 export default function VideoCard({ v }) {
   return (
@@ -18,9 +18,9 @@ export default function VideoCard({ v }) {
           <span><b>Channel:</b> {v.channelTitle}</span>
           <span><b>Channel ID:</b> {v.channelId}</span>
           <span><b>Uploaded:</b> {v.uploadDate}</span>
-          {v.scheduledStartTime && <span><b>Scheduled:</b> {fmtDatetime(v.scheduledStartTime)}</span>}
-          {v.actualStartTime && <span><b>Started:</b> {fmtDatetime(v.actualStartTime)}</span>}
-          {v.actualEndTime && <span><b>Ended:</b> {fmtDatetime(v.actualEndTime)}</span>}
+          {v.scheduledStartTime && <span><b>Scheduled:</b> {v.scheduledStartTime}</span>}
+          {v.actualStartTime && <span><b>Started:</b> {v.actualStartTime}</span>}
+          {v.actualEndTime && <span><b>Ended:</b> {v.actualEndTime}</span>}
           <span><b>Duration:</b> {v.duration}</span>
           <span><b>Views:</b> {fmtCount(v.views)}</span>
           <span><b>Likes:</b> {fmtCount(v.likes)}</span>
