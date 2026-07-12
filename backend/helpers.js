@@ -51,6 +51,14 @@ export async function parseChannelId(text, ytFetch) {
         const handle = m[1] || m[2] || m[3];
         return await resolveHandle(handle, ytFetch);
       }
+
+      // Handle bare handle like /PoojaDutt (without @ or c/ prefix)
+      // YouTube supports these URLs but they're ambiguous with video IDs
+      m = path.match(/^\/([^/]+)$/);
+      if (m && !/^[A-Za-z0-9_-]{11}$/.test(m[1])) {
+        // It's not a video ID, treat it as a handle
+        return await resolveHandle(m[1], ytFetch);
+      }
     }
   } catch {
     // not a URL
