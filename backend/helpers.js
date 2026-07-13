@@ -285,6 +285,10 @@ export function shapeVideo(item, idOverride) {
       sid.thumbnails?.default?.url ||
       `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`,
     description: (sid.description || "").trim(),
+    tags: Array.isArray(sid.tags) ? sid.tags : [],
+    defaultLanguage: sid.defaultLanguage || "N/A",
+    defaultAudioLanguage: sid.defaultAudioLanguage || "N/A",
+    categoryId: sid.categoryId || null,
     publishedAtRaw: sid.publishedAt,
     scheduledStartTime: liveDetails.scheduledStartTime ? fmtDatetime(liveDetails.scheduledStartTime) : null,
     actualStartTime: liveDetails.actualStartTime ? fmtDatetime(liveDetails.actualStartTime) : null,

@@ -159,6 +159,42 @@ function cacheKey(parts) {
   return JSON.stringify(parts);
 }
 
+// categoryId -> category name (e.g. "24" -> "Entertainment"). YouTube video
+// categories are effectively static for a given region, so a process-lifetime
+// cache keyed only on categoryId (using a fixed regionCode) avoids re-fetching
+// the same handful of categories on every request.
+const categoryNameCache = new Map();
+
+// Resolves and attaches `categoryName` onto one shaped video or an array of
+// them, batching the videoCategories.list lookup for any categoryIds not
+// already cached.
+async function attachCategoryNames(videos) {
+  const list = Array.isArray(videos) ? videos : [videos];
+  const missingIds = [...new Set(
+    list.map((v) => v.categoryId).filter((id) => id && !categoryNameCache.has(id))
+  )];
+
+  if (missingIds.length) {
+    try {
+      const data = await ytFetch("videoCategories", {
+        part: "snippet",
+        id: missingIds.join(","),
+        regionCode: "US",
+      });
+      for (const item of data.items || []) {
+        categoryNameCache.set(item.id, item.snippet?.title || "N/A");
+      }
+    } catch {
+      // Ignore lookup failures; unresolved ids fall back to "N/A" below.
+    }
+  }
+
+  for (const v of list) {
+    v.categoryName = v.categoryId ? (categoryNameCache.get(v.categoryId) || "N/A") : "N/A";
+  }
+  return videos;
+}
+
 /**
  * @swagger
  * /api/proxy-image:
@@ -511,6 +547,7 @@ app.get("/api/video", async (req, res) => {
       }
       const item = data.items[0];
       shaped = shapeVideo(item, vid);
+      await attachCategoryNames(shaped);
 
       // Single-item lookup only — fetch the uploading channel's avatar so the
       // Video Player tab can show a small channel profile picture. Not done
@@ -709,6 +746,7 @@ app.get("/api/channel-videos", async (req, res) => {
     sortVideos(sortedItems, sort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
+    await attachCategoryNames(videos);
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
@@ -799,6 +837,7 @@ app.get("/api/channel-latest-videos", async (req, res) => {
         );
 
         const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
+        await attachCategoryNames(videos);
         result = { videos, count: videos.length, uploadsPlaylistId, nextPageToken, prevPageToken };
       }
 
@@ -1507,6 +1546,7 @@ app.get("/api/playlist", async (req, res) => {
     const start = req.query.pageToken ? Math.max(parseInt(req.query.pageToken, 10) || 0, 0) : 0;
     const end = Math.min(start + max, sortedItems.length);
     const pageSlice = sortedItems.slice(start, end).map((v) => shapeVideo(v));
+    await attachCategoryNames(pageSlice);
     const nextPageToken = end < sortedItems.length ? String(end) : null;
 
     res.json({
@@ -1671,6 +1711,7 @@ app.get("/api/search-videos", async (req, res) => {
     sortVideos(sortedItems, sort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
+    await attachCategoryNames(videos);
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);

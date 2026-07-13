@@ -476,7 +476,7 @@ function VideoTab() {
       {video && (
         <div style={{ marginTop: 16 }}>
           <ExportBar data={video} filenameBase="video-details" />
-          <VideoCard v={video} />
+          <VideoCard v={video} showTags />
         </div>
       )}
     </div>
@@ -2589,7 +2589,7 @@ function VideoPlayerTab() {
       {video && (
         <div style={{ marginTop: 16 }}>
           <ExportBar data={video} filenameBase="video-details" />
-          <VideoCard v={video} />
+          <VideoCard v={video} showTags />
         </div>
       )}
     </div>
