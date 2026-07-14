@@ -1,7 +1,10 @@
+// frontend/src/VideoCard.jsx
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
 import { fmtCount } from "../../backend/helpers.js";
+import { getCategoryName } from "./categoryMap.js";
+import { getLanguageName } from "./languageMap.js";
 
 export default function VideoCard({ v, showTags = false }) {
   return (
@@ -25,21 +28,37 @@ export default function VideoCard({ v, showTags = false }) {
           <span><b>Views:</b> {fmtCount(v.views)}</span>
           <span><b>Likes:</b> {fmtCount(v.likes)}</span>
           <span><b>Comments:</b> {fmtCount(v.comments)}</span>
-          <span><b>Default language:</b> {v.defaultLanguage}</span>
-          <span><b>Default audio language:</b> {v.defaultAudioLanguage}</span>
-          <span><b>Category ID:</b> {v.categoryId ?? "N/A"}</span>
+          <span><b>Default language:</b> {getLanguageName(v.defaultLanguage)}</span>
+          <span><b>Default audio language:</b> {getLanguageName(v.defaultAudioLanguage)}</span>
+          <span><b>Category:</b> {getCategoryName(v.categoryId)}</span>
         </div>
+        
+        {/* Description with label */}
         {v.description && (
-          <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
-            <LinkifiedText text={v.description} videoId={v.videoId} />
+          <div className="description-wrapper" style={{ marginTop: 8 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+              Description:
+            </div>
+            <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+              <LinkifiedText text={v.description} videoId={v.videoId} />
+            </div>
           </div>
         )}
+        
+        {/* Tags with label */}
         {showTags && v.tags && v.tags.length > 0 && (
-          <div className="description" style={{ maxHeight: "none", overflow: "visible", marginTop: 6 }}>
-            <div>
-              {v.tags.map((tag, i) => (
-                <span key={i} style={{ display: "block" }}>{tag}</span>
-              ))}
+          <div className="tags-wrapper" style={{ marginTop: 8 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+              Tags:
+            </div>
+            <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+              <div>
+                {v.tags.map((tag, i) => (
+                  <span key={i} style={{ display: "block", fontSize: 12, color: 'var(--muted)' }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         )}
