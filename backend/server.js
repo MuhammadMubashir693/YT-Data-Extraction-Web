@@ -511,7 +511,6 @@ app.get("/api/video", async (req, res) => {
       }
       const item = data.items[0];
       shaped = shapeVideo(item, vid);
-      await attachCategoryNames(shaped);
 
       // Single-item lookup only — fetch the uploading channel's avatar so the
       // Video Player tab can show a small channel profile picture. Not done
@@ -710,7 +709,6 @@ app.get("/api/channel-videos", async (req, res) => {
     sortVideos(sortedItems, sort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
-    await attachCategoryNames(videos);
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
@@ -801,7 +799,6 @@ app.get("/api/channel-latest-videos", async (req, res) => {
         );
 
         const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
-        await attachCategoryNames(videos);
         result = { videos, count: videos.length, uploadsPlaylistId, nextPageToken, prevPageToken };
       }
 
@@ -1510,7 +1507,6 @@ app.get("/api/playlist", async (req, res) => {
     const start = req.query.pageToken ? Math.max(parseInt(req.query.pageToken, 10) || 0, 0) : 0;
     const end = Math.min(start + max, sortedItems.length);
     const pageSlice = sortedItems.slice(start, end).map((v) => shapeVideo(v));
-    await attachCategoryNames(pageSlice);
     const nextPageToken = end < sortedItems.length ? String(end) : null;
 
     res.json({
@@ -1675,7 +1671,6 @@ app.get("/api/search-videos", async (req, res) => {
     sortVideos(sortedItems, sort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
-    await attachCategoryNames(videos);
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
