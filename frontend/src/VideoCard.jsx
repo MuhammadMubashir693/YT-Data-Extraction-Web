@@ -28,7 +28,6 @@ export default function VideoCard({ v, showTags = false }) {
           <span><b>Default language:</b> {v.defaultLanguage}</span>
           <span><b>Default audio language:</b> {v.defaultAudioLanguage}</span>
           <span><b>Category ID:</b> {v.categoryId ?? "N/A"}</span>
-          <span><b>Category:</b> {v.categoryName}</span>
         </div>
         {v.description && (
           <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>

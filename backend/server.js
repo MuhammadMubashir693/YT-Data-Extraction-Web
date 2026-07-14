@@ -159,42 +159,6 @@ function cacheKey(parts) {
   return JSON.stringify(parts);
 }
 
-// categoryId -> category name (e.g. "24" -> "Entertainment"). YouTube video
-// categories are effectively static for a given region, so a process-lifetime
-// cache keyed only on categoryId (using a fixed regionCode) avoids re-fetching
-// the same handful of categories on every request.
-const categoryNameCache = new Map();
-
-// Resolves and attaches `categoryName` onto one shaped video or an array of
-// them, batching the videoCategories.list lookup for any categoryIds not
-// already cached.
-async function attachCategoryNames(videos) {
-  const list = Array.isArray(videos) ? videos : [videos];
-  const missingIds = [...new Set(
-    list.map((v) => v.categoryId).filter((id) => id && !categoryNameCache.has(id))
-  )];
-
-  if (missingIds.length) {
-    try {
-      const data = await ytFetch("videoCategories", {
-        part: "snippet",
-        id: missingIds.join(","),
-        regionCode: "US",
-      });
-      for (const item of data.items || []) {
-        categoryNameCache.set(item.id, item.snippet?.title || "N/A");
-      }
-    } catch {
-      // Ignore lookup failures; unresolved ids fall back to "N/A" below.
-    }
-  }
-
-  for (const v of list) {
-    v.categoryName = v.categoryId ? (categoryNameCache.get(v.categoryId) || "N/A") : "N/A";
-  }
-  return videos;
-}
-
 /**
  * @swagger
  * /api/proxy-image:
