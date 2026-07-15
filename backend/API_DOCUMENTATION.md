@@ -213,6 +213,272 @@ Notes:
 
 ---
 
+## Saved Videos (MongoDB)
+
+Same shape and behavior as [Saved Channels](#saved-channels-mongodb), scoped to videos.
+
+### GET `/api/videos`
+
+Description: Return all saved videos from MongoDB.
+
+Response:
+
+- `200 OK`
+- JSON array of saved video objects:
+  - `name`: video display name
+  - `id`: video ID
+
+Example:
+
+```json
+[
+  { "name": "Me at the zoo", "id": "jNQXAC9IVRw" }
+]
+```
+
+### POST `/api/videos`
+
+Description: Add a saved video.
+
+Request body:
+
+- `name` (required): video display name
+- `id` (required): video ID
+
+Example request:
+
+```http
+POST http://localhost:5000/api/videos
+Content-Type: application/json
+
+{
+  "name": "Me at the zoo",
+  "id": "jNQXAC9IVRw"
+}
+```
+
+Response:
+
+- `201 Created`
+- JSON object with the saved video.
+
+Errors:
+
+- `400 Bad Request`: missing or empty `name`/`id`.
+- `409 Conflict`: video with the same `id` already exists.
+
+### PUT `/api/videos/:currentId`
+
+Description: Update a saved video record.
+
+Path parameters:
+
+- `currentId` (required): current video ID to update.
+
+Request body:
+
+- `name` (required): updated video display name
+- `id` (required): updated video ID
+
+Response:
+
+- `200 OK`
+- JSON object with the updated video.
+
+Errors:
+
+- `400 Bad Request`: missing or empty `name`/`id`.
+- `404 Not Found`: no video with `currentId` exists.
+- `409 Conflict`: a different video already uses the new `id`.
+
+### DELETE `/api/videos/:id`
+
+Description: Remove a saved video.
+
+Path parameters:
+
+- `id` (required): video ID to delete.
+
+Response:
+
+- `200 OK`
+- JSON object: `{ "deleted": true }`
+
+Errors:
+
+- `404 Not Found`: video with `id` does not exist.
+
+Notes:
+
+- Saved videos are stored in the MongoDB collection configured by `MONGO_COLL_VIDEOS` (default `yt-videos`).
+- If the backend cannot connect to MongoDB, all saved video endpoints will fail.
+
+---
+
+## Saved Playlists (MongoDB)
+
+Same shape and behavior as [Saved Channels](#saved-channels-mongodb), scoped to playlists.
+
+### GET `/api/playlists`
+
+Description: Return all saved playlists from MongoDB.
+
+Response:
+
+- `200 OK`
+- JSON array of saved playlist objects:
+  - `name`: playlist display name
+  - `id`: playlist ID
+
+### POST `/api/playlists`
+
+Description: Add a saved playlist.
+
+Request body:
+
+- `name` (required): playlist display name
+- `id` (required): playlist ID
+
+Response:
+
+- `201 Created`
+- JSON object with the saved playlist.
+
+Errors:
+
+- `400 Bad Request`: missing or empty `name`/`id`.
+- `409 Conflict`: playlist with the same `id` already exists.
+
+### PUT `/api/playlists/:currentId`
+
+Description: Update a saved playlist record.
+
+Path parameters:
+
+- `currentId` (required): current playlist ID to update.
+
+Request body:
+
+- `name` (required): updated playlist display name
+- `id` (required): updated playlist ID
+
+Response:
+
+- `200 OK`
+- JSON object with the updated playlist.
+
+Errors:
+
+- `400 Bad Request`: missing or empty `name`/`id`.
+- `404 Not Found`: no playlist with `currentId` exists.
+- `409 Conflict`: a different playlist already uses the new `id`.
+
+### DELETE `/api/playlists/:id`
+
+Description: Remove a saved playlist.
+
+Path parameters:
+
+- `id` (required): playlist ID to delete.
+
+Response:
+
+- `200 OK`
+- JSON object: `{ "deleted": true }`
+
+Errors:
+
+- `404 Not Found`: playlist with `id` does not exist.
+
+Notes:
+
+- Saved playlists are stored in the MongoDB collection configured by `MONGO_COLL_PLAYLISTS` (default `yt-playlists`).
+- If the backend cannot connect to MongoDB, all saved playlist endpoints will fail.
+
+---
+
+## Saved Comments (MongoDB)
+
+Same shape and behavior as [Saved Channels](#saved-channels-mongodb), scoped to comments. Exposed under `/api/saved-comments` rather than `/api/comments`, since that path is already used by the [Comment Threads and Replies](#comment-threads-and-replies) lookup endpoint.
+
+### GET `/api/saved-comments`
+
+Description: Return all saved comments from MongoDB.
+
+Response:
+
+- `200 OK`
+- JSON array of saved comment objects:
+  - `name`: comment display name
+  - `id`: comment ID
+
+### POST `/api/saved-comments`
+
+Description: Add a saved comment.
+
+Request body:
+
+- `name` (required): comment display name
+- `id` (required): comment ID
+
+Response:
+
+- `201 Created`
+- JSON object with the saved comment.
+
+Errors:
+
+- `400 Bad Request`: missing or empty `name`/`id`.
+- `409 Conflict`: comment with the same `id` already exists.
+
+### PUT `/api/saved-comments/:currentId`
+
+Description: Update a saved comment record.
+
+Path parameters:
+
+- `currentId` (required): current comment ID to update.
+
+Request body:
+
+- `name` (required): updated comment display name
+- `id` (required): updated comment ID
+
+Response:
+
+- `200 OK`
+- JSON object with the updated comment.
+
+Errors:
+
+- `400 Bad Request`: missing or empty `name`/`id`.
+- `404 Not Found`: no comment with `currentId` exists.
+- `409 Conflict`: a different comment already uses the new `id`.
+
+### DELETE `/api/saved-comments/:id`
+
+Description: Remove a saved comment.
+
+Path parameters:
+
+- `id` (required): comment ID to delete.
+
+Response:
+
+- `200 OK`
+- JSON object: `{ "deleted": true }`
+
+Errors:
+
+- `404 Not Found`: comment with `id` does not exist.
+
+Notes:
+
+- Saved comments are stored in the MongoDB collection configured by `MONGO_COLL_COMMENTS` (default `yt-comments`).
+- If the backend cannot connect to MongoDB, all saved comment endpoints will fail.
+
+---
+
 ## Video Lookup
 
 ### GET `/api/video`
@@ -920,7 +1186,7 @@ The `videos` arrays returned by most endpoints use a consistent shape generated 
 ## Deployment notes
 
 - The backend is implemented in `backend/server.js` using Express and Axios.
-- Saved channels require a working MongoDB connection.
+- Saved channels, videos, playlists, and comments each require a working MongoDB connection.
 - YouTube quota usage depends on the number of requests and the search/video/comment endpoints.
 
 ---

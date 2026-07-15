@@ -221,11 +221,14 @@ const TABS = [
   { id: "video", label: "Video Details" },
   { id: "player", label: "Video Player" },
   { id: "channelSearch", label: "Search" },
-  { id: "manageChannels", label: "Manage Channels" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
   { id: "comments", label: "Comment Threads" },
   { id: "playlist", label: "Playlist Details" },
+  { id: "manageChannels", label: "Manage Channels" },
+  { id: "manageVideos", label: "Manage Videos" },
+  { id: "managePlaylists", label: "Manage Playlists" },
+  { id: "manageComments", label: "Manage Comments" },
 ];
 
 async function apiGet(path, params = {}) {
@@ -418,6 +421,60 @@ function Spinner() {
   return <span className="spinner" />;
 }
 
+// Loads saved entries (channels/videos/playlists/comments) from the backend,
+// falling back to localStorage when the backend is unreachable — same
+// pattern used by ChannelTab's "select saved channel" dropdown, generalized
+// so every lookup tab can offer the same convenience.
+function useSavedItems(apiPath, storageKey) {
+  const [items, setItems] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiGet(apiPath);
+        if (!cancelled) setItems(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setItems(getStoredChannels(storageKey));
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return { items, loaded };
+}
+
+// Dropdown that lets the person pick one of their saved entries to populate
+// an ID/URL input field, mirroring the "Select saved channel" dropdown.
+function SavedItemSelect({ items, loaded, onSelect, label, placeholder }) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <select
+        value=""
+        onChange={(e) => {
+          if (e.target.value) onSelect(e.target.value);
+        }}
+        disabled={!loaded}
+      >
+        <option value="">{placeholder}</option>
+        {items.map((it) => (
+          <option key={it.id} value={it.id}>
+            {it.name} ({it.id})
+          </option>
+        ))}
+      </select>
+      {!loaded && <span className="spinner" />}
+    </div>
+  );
+}
+
 // ── Tab: Single Video Details ────────────────────────────────────────────
 
 function VideoTab() {
@@ -425,6 +482,7 @@ function VideoTab() {
   const [video, setVideo] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -444,6 +502,13 @@ function VideoTab() {
   return (
     <div className="panel">
       <form onSubmit={submit}>
+        <SavedItemSelect
+          items={savedVideos}
+          loaded={savedVideosLoaded}
+          onSelect={setInput}
+          label="Select saved video"
+          placeholder="-- Choose a saved video --"
+        />
         <div className="field">
           <label>Video ID or URL</label>
           <input
@@ -1153,9 +1218,21 @@ function ChannelSearchTab() {
   );
 }
 
-function ChannelManagerTab() {
-  const [channels, setChannels] = useState([]);
-  const [channelsLoaded, setChannelsLoaded] = useState(false);
+// Generic "manage saved <resource>" tab: a name+id CRUD list backed by a
+// MongoDB-backed API endpoint, with a localStorage fallback (scoped by
+// `storageKey`) when the backend is unreachable. Used for Manage Channels,
+// Manage Videos, Manage Playlists, and Manage Comments, which only differ in
+// labels, API path, and where fallback data is stored.
+function ManagedResourceTab({
+  title,
+  apiPath,
+  storageKey,
+  entityLabel, // e.g. "channel", "video", "playlist", "comment"
+  idLabel, // e.g. "Channel ID", "Video ID"
+  exportFilenameBase,
+}) {
+  const [items, setItems] = useState([]);
+  const [itemsLoaded, setItemsLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("");
   const [id, setId] = useState("");
@@ -1163,21 +1240,21 @@ function ChannelManagerTab() {
   const [messageType, setMessageType] = useState("error");
   const [loading, setLoading] = useState(false);
 
-  const refreshChannels = async () => {
+  const refreshItems = async () => {
     try {
-      const data = await apiGet("channels");
+      const data = await apiGet(apiPath);
       const resolved = Array.isArray(data) ? data : [];
-      setChannels(resolved);
-      setChannelsLoaded(true);
+      setItems(resolved);
+      setItemsLoaded(true);
       if (resolved.length && !resolved.some((c) => c.id === selectedId)) {
         setSelectedId("");
         setName("");
         setId("");
       }
     } catch {
-      const fallback = getStoredChannels();
-      setChannels(fallback);
-      setChannelsLoaded(true);
+      const fallback = getStoredChannels(storageKey);
+      setItems(fallback);
+      setItemsLoaded(true);
       if (fallback.length && !fallback.some((c) => c.id === selectedId)) {
         setSelectedId("");
         setName("");
@@ -1187,15 +1264,16 @@ function ChannelManagerTab() {
   };
 
   useEffect(() => {
-    refreshChannels();
+    refreshItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectChannel = (channelId) => {
-    const channel = channels.find((c) => c.id === channelId);
-    if (channel) {
-      setSelectedId(channel.id);
-      setName(channel.name);
-      setId(channel.id);
+  const selectItem = (itemId) => {
+    const item = items.find((c) => c.id === itemId);
+    if (item) {
+      setSelectedId(item.id);
+      setName(item.name);
+      setId(item.id);
     } else {
       setSelectedId("");
       setName("");
@@ -1209,88 +1287,88 @@ function ChannelManagerTab() {
     setTimeout(() => setMessage(""), 4000);
   };
 
-  const createChannel = async () => {
+  const createItem = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/channels", {
+      const res = await fetch(`/api/${apiPath}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), id: id.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't add channel");
-      await refreshChannels();
+      if (!res.ok) throw new Error(data.error || `Couldn't add ${entityLabel}`);
+      await refreshItems();
       setSelectedId(data.id);
       setName(data.name);
       setId(data.id);
-      notify("Channel added successfully.", "success");
+      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} added successfully.`, "success");
     } catch (err) {
-      const fallbackChannel = { name: name.trim(), id: id.trim() };
-      addStoredChannel(fallbackChannel);
-      const fallback = getStoredChannels();
-      setChannels(fallback);
-      setSelectedId(fallbackChannel.id);
-      setName(fallbackChannel.name);
-      setId(fallbackChannel.id);
-      notify("Channel saved locally because the backend is unavailable.", "success");
+      const fallbackItem = { name: name.trim(), id: id.trim() };
+      addStoredChannel(fallbackItem, storageKey);
+      const fallback = getStoredChannels(storageKey);
+      setItems(fallback);
+      setSelectedId(fallbackItem.id);
+      setName(fallbackItem.name);
+      setId(fallbackItem.id);
+      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} saved locally because the backend is unavailable.`, "success");
     } finally {
       setLoading(false);
     }
   };
 
-  const updateChannel = async () => {
+  const updateItem = async () => {
     if (!selectedId) {
-      return notify("Select a channel to update.");
+      return notify(`Select a ${entityLabel} to update.`);
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/channels/${encodeURIComponent(selectedId)}`, {
+      const res = await fetch(`/api/${apiPath}/${encodeURIComponent(selectedId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), id: id.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't update channel");
-      await refreshChannels();
+      if (!res.ok) throw new Error(data.error || `Couldn't update ${entityLabel}`);
+      await refreshItems();
       setSelectedId(data.id);
       setName(data.name);
       setId(data.id);
-      notify("Channel updated successfully.", "success");
+      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} updated successfully.`, "success");
     } catch (err) {
-      const updated = updateStoredChannel(selectedId, { name: name.trim(), id: id.trim() });
-      setChannels(updated);
+      const updated = updateStoredChannel(selectedId, { name: name.trim(), id: id.trim() }, storageKey);
+      setItems(updated);
       setSelectedId(id.trim());
       setName(name.trim());
       setId(id.trim());
-      notify("Channel updated locally because the backend is unavailable.", "success");
+      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} updated locally because the backend is unavailable.`, "success");
     } finally {
       setLoading(false);
     }
   };
 
-  const deleteChannel = async () => {
+  const deleteItem = async () => {
     if (!selectedId) {
-      return notify("Select a channel to delete.");
+      return notify(`Select a ${entityLabel} to delete.`);
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/channels/${encodeURIComponent(selectedId)}`, {
+      const res = await fetch(`/api/${apiPath}/${encodeURIComponent(selectedId)}`, {
         method: "DELETE",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't delete channel");
-      await refreshChannels();
+      if (!res.ok) throw new Error(data.error || `Couldn't delete ${entityLabel}`);
+      await refreshItems();
       setSelectedId("");
       setName("");
       setId("");
-      notify("Channel deleted successfully.", "success");
+      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} deleted successfully.`, "success");
     } catch (err) {
-      const updated = deleteStoredChannel(selectedId);
-      setChannels(updated);
+      const updated = deleteStoredChannel(selectedId, storageKey);
+      setItems(updated);
       setSelectedId("");
       setName("");
       setId("");
-      notify("Channel removed locally because the backend is unavailable.", "success");
+      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} removed locally because the backend is unavailable.`, "success");
     } finally {
       setLoading(false);
     }
@@ -1298,15 +1376,15 @@ function ChannelManagerTab() {
 
   return (
     <div className="panel">
-      <h2>Manage Channels</h2>
-      {channelsLoaded && channels.length > 0 && (
-        <ExportBar data={channels} filenameBase="saved-channels" />
+      <h2>{title}</h2>
+      {itemsLoaded && items.length > 0 && (
+        <ExportBar data={items} filenameBase={exportFilenameBase} />
       )}
       <div className="field">
-        <label>Saved channels</label>
-        <select value={selectedId} onChange={(e) => selectChannel(e.target.value)}>
-          <option value="">-- Select saved channel --</option>
-          {channels.map((c) => (
+        <label>Saved {entityLabel}s</label>
+        <select value={selectedId} onChange={(e) => selectItem(e.target.value)}>
+          <option value="">-- Select saved {entityLabel} --</option>
+          {items.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} ({c.id})
             </option>
@@ -1314,7 +1392,7 @@ function ChannelManagerTab() {
         </select>
       </div>
       <div className="field">
-        <label>Channel name</label>
+        <label>{entityLabel[0].toUpperCase()}{entityLabel.slice(1)} name</label>
         <input
           type="text"
           placeholder="Name to display in dropdown"
@@ -1323,10 +1401,10 @@ function ChannelManagerTab() {
         />
       </div>
       <div className="field">
-        <label>Channel ID</label>
+        <label>{idLabel}</label>
         <input
           type="text"
-          placeholder="Channel ID"
+          placeholder={idLabel}
           value={id}
           onChange={(e) => setId(e.target.value)}
         />
@@ -1335,7 +1413,7 @@ function ChannelManagerTab() {
         <button
           type="button"
           className="secondary"
-          onClick={createChannel}
+          onClick={createItem}
           disabled={loading || !name.trim() || !id.trim()}
         >
           Add
@@ -1343,7 +1421,7 @@ function ChannelManagerTab() {
         <button
           type="button"
           className="secondary"
-          onClick={updateChannel}
+          onClick={updateItem}
           disabled={loading || !selectedId || !name.trim() || !id.trim()}
         >
           Update
@@ -1351,7 +1429,7 @@ function ChannelManagerTab() {
         <button
           type="button"
           className="secondary"
-          onClick={deleteChannel}
+          onClick={deleteItem}
           disabled={loading || !selectedId}
         >
           Delete
@@ -1359,6 +1437,58 @@ function ChannelManagerTab() {
       </div>
       {message && <ErrorBox message={message} type={messageType} />}
     </div>
+  );
+}
+
+function ChannelManagerTab() {
+  return (
+    <ManagedResourceTab
+      title="Manage Channels"
+      apiPath="channels"
+      storageKey="yt-data-saved-channels"
+      entityLabel="channel"
+      idLabel="Channel ID"
+      exportFilenameBase="saved-channels"
+    />
+  );
+}
+
+function VideoManagerTab() {
+  return (
+    <ManagedResourceTab
+      title="Manage Videos"
+      apiPath="videos"
+      storageKey="yt-data-saved-videos"
+      entityLabel="video"
+      idLabel="Video ID"
+      exportFilenameBase="saved-videos"
+    />
+  );
+}
+
+function PlaylistManagerTab() {
+  return (
+    <ManagedResourceTab
+      title="Manage Playlists"
+      apiPath="playlists"
+      storageKey="yt-data-saved-playlists"
+      entityLabel="playlist"
+      idLabel="Playlist ID"
+      exportFilenameBase="saved-playlists"
+    />
+  );
+}
+
+function CommentManagerTab() {
+  return (
+    <ManagedResourceTab
+      title="Manage Comments"
+      apiPath="saved-comments"
+      storageKey="yt-data-saved-comments"
+      entityLabel="comment"
+      idLabel="Comment ID"
+      exportFilenameBase="saved-comments"
+    />
   );
 }
 
@@ -1866,6 +1996,7 @@ function CommentTab() {
   const [comment, setComment] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { items: savedComments, loaded: savedCommentsLoaded } = useSavedItems("saved-comments", "yt-data-saved-comments");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1885,6 +2016,13 @@ function CommentTab() {
   return (
     <div className="panel">
       <form onSubmit={submit}>
+        <SavedItemSelect
+          items={savedComments}
+          loaded={savedCommentsLoaded}
+          onSelect={setInput}
+          label="Select saved comment"
+          placeholder="-- Choose a saved comment --"
+        />
         <div className="field">
           <label>Comment ID or URL (with lc= param)</label>
           <input
@@ -1941,6 +2079,7 @@ function CommentsTab({ active = true }) {
   const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [replyPages, setReplyPages] = useState({});
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
   // manual "View more" style: do not auto-load on scroll for top-level threads
 
   // Keyword, date range, and sort are all applied live over whatever threads
@@ -2018,6 +2157,13 @@ function CommentsTab({ active = true }) {
   return (
     <div className="panel">
       <form onSubmit={submit}>
+        <SavedItemSelect
+          items={savedVideos}
+          loaded={savedVideosLoaded}
+          onSelect={setInput}
+          label="Select saved video"
+          placeholder="-- Choose a saved video --"
+        />
         <div className="field">
           <label>Video ID or URL</label>
           <input
@@ -2220,6 +2366,7 @@ function PlaylistTab({ active = true }) {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const { items: savedPlaylists, loaded: savedPlaylistsLoaded } = useSavedItems("playlists", "yt-data-saved-playlists");
 
   const filteredVideos = (() => {
     if (!playlistVideos?.length) return [];
@@ -2316,6 +2463,13 @@ function PlaylistTab({ active = true }) {
   return (
     <div className="panel">
       <form onSubmit={submit}>
+        <SavedItemSelect
+          items={savedPlaylists}
+          loaded={savedPlaylistsLoaded}
+          onSelect={setInput}
+          label="Select saved playlist"
+          placeholder="-- Choose a saved playlist --"
+        />
         <div className="field">
           <label>Playlist ID or URL</label>
           <input
@@ -2490,6 +2644,7 @@ function VideoPlayerTab() {
   const [video, setVideo] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -2516,6 +2671,13 @@ function VideoPlayerTab() {
   return (
     <div className="panel">
       <form onSubmit={submit}>
+        <SavedItemSelect
+          items={savedVideos}
+          loaded={savedVideosLoaded}
+          onSelect={setInput}
+          label="Select saved video"
+          placeholder="-- Choose a saved video --"
+        />
         <div className="field">
           <label>Video ID or URL</label>
           <input
@@ -2664,11 +2826,14 @@ export default function App() {
           <div style={{ display: tab === "video" ? "block" : "none" }}><VideoTab /></div>
           <div style={{ display: tab === "player" ? "block" : "none" }}><VideoPlayerTab /></div>
           <div style={{ display: tab === "channelSearch" ? "block" : "none" }}><ChannelSearchTab /></div>
-          <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>
           <div style={{ display: tab === "channel" ? "block" : "none" }}><ChannelTab active={tab === "channel"} /></div>
           <div style={{ display: tab === "comment" ? "block" : "none" }}><CommentTab /></div>
           <div style={{ display: tab === "comments" ? "block" : "none" }}><CommentsTab active={tab === "comments"} /></div>
           <div style={{ display: tab === "playlist" ? "block" : "none" }}><PlaylistTab active={tab === "playlist"} /></div>
+          <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>
+          <div style={{ display: tab === "manageVideos" ? "block" : "none" }}><VideoManagerTab /></div>
+          <div style={{ display: tab === "managePlaylists" ? "block" : "none" }}><PlaylistManagerTab /></div>
+          <div style={{ display: tab === "manageComments" ? "block" : "none" }}><CommentManagerTab /></div>
         </div>
       </main>
     </div>

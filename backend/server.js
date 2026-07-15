@@ -32,16 +32,25 @@ const MONGO_PASS = process.env.MONGO_PASS || "mongo123";
 const MONGO_HOST = process.env.MONGO_HOST || "localhost";
 const MONGO_PORT = process.env.MONGO_PORT || "27017";
 const MONGO_DB = process.env.MONGO_DB || "yt-data-web";
-const MONGO_COLL = process.env.MONGO_COLL || "yt-channels";
+const MONGO_COLL_CHANNELS = process.env.MONGO_COLL_CHANNELS || "yt-channels";
+const MONGO_COLL_VIDEOS = process.env.MONGO_COLL_VIDEOS || "yt-videos";
+const MONGO_COLL_PLAYLISTS = process.env.MONGO_COLL_PLAYLISTS || "yt-playlists";
+const MONGO_COLL_COMMENTS = process.env.MONGO_COLL_COMMENTS || "yt-comments";
 const MONGO_URI = `mongodb://${encodeURIComponent(MONGO_USER)}:${encodeURIComponent(MONGO_PASS)}@${MONGO_HOST}:${MONGO_PORT}/?authSource=admin`;
 
 const mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
 let channelCollection = null;
+let savedVideoCollection = null;
+let savedPlaylistCollection = null;
+let savedCommentCollection = null;
 
 async function initMongo() {
   try {
     await mongoClient.connect();
-    channelCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL);
+    channelCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL_CHANNELS);
+    savedVideoCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL_VIDEOS);
+    savedPlaylistCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL_PLAYLISTS);
+    savedCommentCollection = mongoClient.db(MONGO_DB).collection(MONGO_COLL_COMMENTS);
     console.log("Connected to MongoDB");
   } catch (err) {
     console.error("Could not connect to MongoDB:", err.message);
@@ -55,6 +64,84 @@ function getChannelCollection() {
     throw new Error("MongoDB is not connected");
   }
   return channelCollection;
+}
+
+function getSavedVideoCollection() {
+  if (!savedVideoCollection) {
+    throw new Error("MongoDB is not connected");
+  }
+  return savedVideoCollection;
+}
+
+function getSavedPlaylistCollection() {
+  if (!savedPlaylistCollection) {
+    throw new Error("MongoDB is not connected");
+  }
+  return savedPlaylistCollection;
+}
+
+function getSavedCommentCollection() {
+  if (!savedCommentCollection) {
+    throw new Error("MongoDB is not connected");
+  }
+  return savedCommentCollection;
+}
+
+// Generic helpers backing the "manage <resource>" CRUD endpoints
+// (saved channels/videos/playlists/comments). Every managed resource shares
+// the same { name, id } shape and the same uniqueness-by-id semantics, so
+// the load/add/update/delete logic is written once here and reused by each
+// resource's route handlers below (kept as separate app.get/post/put/delete
+// calls, each with its own @swagger block, so the routes/docs stay explicit).
+async function loadManagedResource(getColl) {
+  return await getColl()
+    .find({}, { projection: { _id: 0 } })
+    .sort({ name: 1 })
+    .toArray();
+}
+
+async function addManagedResource(getColl, name, id) {
+  const coll = getColl();
+  const existing = await coll.findOne({ id });
+  if (existing) {
+    const err = new Error("An entry with that id already exists.");
+    err.status = 409;
+    throw err;
+  }
+  const entry = { name, id };
+  await coll.insertOne(entry);
+  return entry;
+}
+
+async function updateManagedResource(getColl, currentId, name, id) {
+  const coll = getColl();
+  const existing = await coll.findOne({ id: currentId });
+  if (!existing) {
+    const err = new Error("Entry not found.");
+    err.status = 404;
+    throw err;
+  }
+  if (currentId !== id) {
+    const duplicate = await coll.findOne({ id });
+    if (duplicate) {
+      const err = new Error("An entry with the new id already exists.");
+      err.status = 409;
+      throw err;
+    }
+  }
+  await coll.updateOne({ id: currentId }, { $set: { name, id } });
+  return { name, id };
+}
+
+async function deleteManagedResource(getColl, id) {
+  const coll = getColl();
+  const result = await coll.deleteOne({ id });
+  if (result.deletedCount === 0) {
+    const err = new Error("Entry not found.");
+    err.status = 404;
+    throw err;
+  }
+  return { deleted: true };
 }
 
 const app = express();
@@ -309,10 +396,7 @@ function sortVideos(items, sort) {
 
 async function loadChannels() {
   if (!channelCollection) return [];
-  return await getChannelCollection()
-    .find({}, { projection: { _id: 0 } })
-    .sort({ name: 1 })
-    .toArray();
+  return await loadManagedResource(getChannelCollection);
 }
 
 /**
@@ -377,15 +461,12 @@ app.post("/api/channels", async (req, res) => {
     if (!name || !id) {
       return res.status(400).json({ error: "Channel name and id are required." });
     }
-    const coll = getChannelCollection();
-    const existing = await coll.findOne({ id });
-    if (existing) {
-      return res.status(409).json({ error: "A channel with that id already exists." });
-    }
-    const channel = { name, id };
-    await coll.insertOne(channel);
+    const channel = await addManagedResource(getChannelCollection, name, id);
     res.status(201).json(channel);
   } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({ error: "A channel with that id already exists." });
+    }
     handleError(res, err);
   }
 });
@@ -423,20 +504,11 @@ app.put("/api/channels/:currentId", async (req, res) => {
     if (!name || !id) {
       return res.status(400).json({ error: "Channel name and id are required." });
     }
-    const coll = getChannelCollection();
-    const existing = await coll.findOne({ id: currentId });
-    if (!existing) {
-      return res.status(404).json({ error: "Channel not found." });
-    }
-    if (currentId !== id) {
-      const duplicate = await coll.findOne({ id });
-      if (duplicate) {
-        return res.status(409).json({ error: "A channel with the new id already exists." });
-      }
-    }
-    await coll.updateOne({ id: currentId }, { $set: { name, id } });
-    res.json({ name, id });
+    const updated = await updateManagedResource(getChannelCollection, currentId, name, id);
+    res.json(updated);
   } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Channel not found." });
+    if (err.status === 409) return res.status(409).json({ error: "A channel with the new id already exists." });
     handleError(res, err);
   }
 });
@@ -458,14 +530,439 @@ app.put("/api/channels/:currentId", async (req, res) => {
 
 app.delete("/api/channels/:id", async (req, res) => {
   try {
-    const id = req.params.id;
-    const coll = getChannelCollection();
-    const result = await coll.deleteOne({ id });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: "Channel not found." });
-    }
-    res.json({ deleted: true });
+    const result = await deleteManagedResource(getChannelCollection, req.params.id);
+    res.json(result);
   } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Channel not found." });
+    handleError(res, err);
+  }
+});
+
+// ── Saved Videos (MongoDB) ──────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/videos:
+ *   get:
+ *     summary: Get all saved videos
+ *     responses:
+ *       200:
+ *         description: Array of saved video objects
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   id:
+ *                     type: string
+ */
+
+app.get("/api/videos", async (req, res) => {
+  try {
+    if (!savedVideoCollection) return res.json([]);
+    const videos = await loadManagedResource(getSavedVideoCollection);
+    res.json(videos);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/videos:
+ *   post:
+ *     summary: Add a new saved video
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               id:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Video added
+ *       400:
+ *         description: Missing name or id
+ *       409:
+ *         description: Video already exists
+ */
+
+app.post("/api/videos", async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Video name and id are required." });
+    }
+    const video = await addManagedResource(getSavedVideoCollection, name, id);
+    res.status(201).json(video);
+  } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({ error: "A video with that id already exists." });
+    }
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/videos/{currentId}:
+ *   put:
+ *     summary: Update a saved video
+ *     parameters:
+ *       - in: path
+ *         name: currentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               id: { type: string }
+ *     responses:
+ *       200: { description: Video updated }
+ *       404: { description: Video not found }
+ *       409: { description: ID conflict }
+ */
+
+app.put("/api/videos/:currentId", async (req, res) => {
+  try {
+    const currentId = req.params.currentId;
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Video name and id are required." });
+    }
+    const updated = await updateManagedResource(getSavedVideoCollection, currentId, name, id);
+    res.json(updated);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Video not found." });
+    if (err.status === 409) return res.status(409).json({ error: "A video with the new id already exists." });
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/videos/{id}:
+ *   delete:
+ *     summary: Delete a saved video
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Deleted }
+ *       404: { description: Video not found }
+ */
+
+app.delete("/api/videos/:id", async (req, res) => {
+  try {
+    const result = await deleteManagedResource(getSavedVideoCollection, req.params.id);
+    res.json(result);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Video not found." });
+    handleError(res, err);
+  }
+});
+
+// ── Saved Playlists (MongoDB) ───────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/playlists:
+ *   get:
+ *     summary: Get all saved playlists
+ *     responses:
+ *       200:
+ *         description: Array of saved playlist objects
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   id:
+ *                     type: string
+ */
+
+app.get("/api/playlists", async (req, res) => {
+  try {
+    if (!savedPlaylistCollection) return res.json([]);
+    const playlists = await loadManagedResource(getSavedPlaylistCollection);
+    res.json(playlists);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/playlists:
+ *   post:
+ *     summary: Add a new saved playlist
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               id:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Playlist added
+ *       400:
+ *         description: Missing name or id
+ *       409:
+ *         description: Playlist already exists
+ */
+
+app.post("/api/playlists", async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Playlist name and id are required." });
+    }
+    const playlist = await addManagedResource(getSavedPlaylistCollection, name, id);
+    res.status(201).json(playlist);
+  } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({ error: "A playlist with that id already exists." });
+    }
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/playlists/{currentId}:
+ *   put:
+ *     summary: Update a saved playlist
+ *     parameters:
+ *       - in: path
+ *         name: currentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               id: { type: string }
+ *     responses:
+ *       200: { description: Playlist updated }
+ *       404: { description: Playlist not found }
+ *       409: { description: ID conflict }
+ */
+
+app.put("/api/playlists/:currentId", async (req, res) => {
+  try {
+    const currentId = req.params.currentId;
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Playlist name and id are required." });
+    }
+    const updated = await updateManagedResource(getSavedPlaylistCollection, currentId, name, id);
+    res.json(updated);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Playlist not found." });
+    if (err.status === 409) return res.status(409).json({ error: "A playlist with the new id already exists." });
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/playlists/{id}:
+ *   delete:
+ *     summary: Delete a saved playlist
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Deleted }
+ *       404: { description: Playlist not found }
+ */
+
+app.delete("/api/playlists/:id", async (req, res) => {
+  try {
+    const result = await deleteManagedResource(getSavedPlaylistCollection, req.params.id);
+    res.json(result);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Playlist not found." });
+    handleError(res, err);
+  }
+});
+
+// ── Saved Comments (MongoDB) ────────────────────────────────────────────
+//
+// Exposed under /api/saved-comments (not /api/comments) since that path is
+// already used by the comment-threads lookup endpoint below.
+
+/**
+ * @swagger
+ * /api/saved-comments:
+ *   get:
+ *     summary: Get all saved comments
+ *     responses:
+ *       200:
+ *         description: Array of saved comment objects
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   id:
+ *                     type: string
+ */
+
+app.get("/api/saved-comments", async (req, res) => {
+  try {
+    if (!savedCommentCollection) return res.json([]);
+    const comments = await loadManagedResource(getSavedCommentCollection);
+    res.json(comments);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/saved-comments:
+ *   post:
+ *     summary: Add a new saved comment
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               id:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Comment added
+ *       400:
+ *         description: Missing name or id
+ *       409:
+ *         description: Comment already exists
+ */
+
+app.post("/api/saved-comments", async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Comment name and id are required." });
+    }
+    const comment = await addManagedResource(getSavedCommentCollection, name, id);
+    res.status(201).json(comment);
+  } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({ error: "A comment with that id already exists." });
+    }
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/saved-comments/{currentId}:
+ *   put:
+ *     summary: Update a saved comment
+ *     parameters:
+ *       - in: path
+ *         name: currentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               id: { type: string }
+ *     responses:
+ *       200: { description: Comment updated }
+ *       404: { description: Comment not found }
+ *       409: { description: ID conflict }
+ */
+
+app.put("/api/saved-comments/:currentId", async (req, res) => {
+  try {
+    const currentId = req.params.currentId;
+    const name = String(req.body.name || "").trim();
+    const id = String(req.body.id || "").trim();
+    if (!name || !id) {
+      return res.status(400).json({ error: "Comment name and id are required." });
+    }
+    const updated = await updateManagedResource(getSavedCommentCollection, currentId, name, id);
+    res.json(updated);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Comment not found." });
+    if (err.status === 409) return res.status(409).json({ error: "A comment with the new id already exists." });
+    handleError(res, err);
+  }
+});
+
+/**
+ * @swagger
+ * /api/saved-comments/{id}:
+ *   delete:
+ *     summary: Delete a saved comment
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Deleted }
+ *       404: { description: Comment not found }
+ */
+
+app.delete("/api/saved-comments/:id", async (req, res) => {
+  try {
+    const result = await deleteManagedResource(getSavedCommentCollection, req.params.id);
+    res.json(result);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: "Comment not found." });
     handleError(res, err);
   }
 });

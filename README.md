@@ -65,6 +65,9 @@ Required environment variables (defaults shown when applicable):
 - `MONGO_PORT` – MongoDB port (default: `27017`)
 - `MONGO_DB` – database name (default: `yt-data-web`)
 - `MONGO_COLL` – collection name for saved channels (default: `yt-channels`)
+- `MONGO_COLL_VIDEOS` – collection name for saved videos (default: `yt-videos`)
+- `MONGO_COLL_PLAYLISTS` – collection name for saved playlists (default: `yt-playlists`)
+- `MONGO_COLL_COMMENTS` – collection name for saved comments (default: `yt-comments`)
 
 Example `backend/.env`:
 
@@ -77,6 +80,9 @@ MONGO_HOST=localhost
 MONGO_PORT=27017
 MONGO_DB=yt-data-web
 MONGO_COLL=yt-channels
+MONGO_COLL_VIDEOS=yt-videos
+MONGO_COLL_PLAYLISTS=yt-playlists
+MONGO_COLL_COMMENTS=yt-comments
 ```
 
 Start the backend:
@@ -117,6 +123,18 @@ The backend exposes a JSON API under `/api`:
 - `POST /api/channels` — add a saved channel; JSON body: `{ name, id }`.
 - `PUT /api/channels/:currentId` — update a saved channel; JSON body: `{ name, id }`.
 - `DELETE /api/channels/:id` — delete a saved channel.
+- `GET /api/videos` — list saved videos (MongoDB-backed).
+- `POST /api/videos` — add a saved video; JSON body: `{ name, id }`.
+- `PUT /api/videos/:currentId` — update a saved video; JSON body: `{ name, id }`.
+- `DELETE /api/videos/:id` — delete a saved video.
+- `GET /api/playlists` — list saved playlists (MongoDB-backed).
+- `POST /api/playlists` — add a saved playlist; JSON body: `{ name, id }`.
+- `PUT /api/playlists/:currentId` — update a saved playlist; JSON body: `{ name, id }`.
+- `DELETE /api/playlists/:id` — delete a saved playlist.
+- `GET /api/saved-comments` — list saved comments (MongoDB-backed).
+- `POST /api/saved-comments` — add a saved comment; JSON body: `{ name, id }`.
+- `PUT /api/saved-comments/:currentId` — update a saved comment; JSON body: `{ name, id }`.
+- `DELETE /api/saved-comments/:id` — delete a saved comment.
 - `GET /api/channel-videos?channelId=...&mode=keyword|date&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — fetch videos for a channel with optional keyword, date range, duration, and sort filters.
 - `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — general video search with the same filter options.
 - `GET /api/search-channels?keyword=...&maxResults=...` — search YouTube channels by name (channel description is not searched).
@@ -136,11 +154,14 @@ For a full API reference, see `backend/API_DOCUMENTATION.md`.
   - *Videos* — search within a saved channel or globally, with optional keyword (single or per-field: title, description, channel name), date range, duration type, and sort filters.
   - *Channels* — search by channel name only (channel description is not matched).
   - *Playlists* — search with a single keyword (matched against playlist title and channel title) or with separate per-field keywords for playlist title and channel title.
-- **Manage Channels** — add, update, and delete saved channels stored in MongoDB for use in Search Videos.
 - **Channel Details** — fetch channel metadata (subscriber count, view count, video count, country, description, banner, avatar) and its playlists (including an **"Uploads"** entry representing the channel's full uploads playlist) with sort options. Paste any playlist's ID/URL — including the Uploads one — into the **Playlist Details** tab to browse its videos with search-by-title, sorting, infinite scroll, and export, exactly like any other playlist.
 - **Comment Details** — fetch a single comment by ID or YouTube URL with `lc=` parameter.
 - **Comment Threads** — fetch comment threads and paginated replies for a video, with keyword or date range filtering and multiple sort options.
 - **Playlist Details** — fetch playlist metadata and its videos with sort options, plus a live client-side title search and start/end date range filter (auto-swapped if entered in reverse order) that combine with the sort — no extra API calls, since the full playlist is already loaded.
+- **Manage Channels** — add, update, and delete saved channels stored in MongoDB for use in Search Videos. IDs must be unique.
+- **Manage Videos** — add, update, and delete saved videos stored in MongoDB, in the same name/ID format as Manage Channels. IDs must be unique.
+- **Manage Playlists** — add, update, and delete saved playlists stored in MongoDB, in the same name/ID format as Manage Channels. IDs must be unique.
+- **Manage Comments** — add, update, and delete saved comments stored in MongoDB, in the same name/ID format as Manage Channels. IDs must be unique.
 
 **Input formats supported**
 
@@ -157,7 +178,7 @@ Every tab with results to show offers JSON, XML, CSV, and TXT export buttons tha
 
 - Single-item tabs (Video Details, Video Player, Channel Details, Comment Details, Playlist Details) export the one fetched record.
 - Search/list tabs (Search, Comment Threads) export the full list of currently loaded results, including any comment replies that have been expanded/loaded so far.
-- **Manage Channels** shows export buttons only after the saved-channel list has successfully loaded from MongoDB and is non-empty; it stays hidden if MongoDB is unreachable or there are no saved channels yet.
+- **Manage Channels**, **Manage Videos**, **Manage Playlists**, and **Manage Comments** each show export buttons only after their saved list has successfully loaded from MongoDB and is non-empty; export stays hidden if MongoDB is unreachable or there are no saved entries yet.
 
 **Video descriptions**
 
@@ -172,4 +193,4 @@ Video descriptions automatically hyperlink:
 - The YouTube Data API has daily quota limits; search and playlist operations consume quota more quickly than single-item lookups.
 - Only read-only API calls are made — an API key is sufficient, no OAuth required.
 - The Video Player can only play videos that the uploader has enabled for embedding on external sites; age-restricted or embedding-disabled videos will show YouTube's own error regardless of player configuration.
-- If MongoDB is unavailable, channel management endpoints will fail; the backend logs a warning on startup when it cannot connect.
+- If MongoDB is unavailable, the channel/video/playlist/comment management endpoints will fail; the backend logs a warning on startup when it cannot connect.
