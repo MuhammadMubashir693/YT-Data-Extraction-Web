@@ -241,6 +241,64 @@ async function apiGet(path, params = {}) {
   return data;
 }
 
+// ── Saved-items change broadcasting ──────────────────────────────────────
+//
+// Several tabs (Search, Channel Details, and any tab using useSavedItems)
+// each load their own copy of the saved channels/videos/playlists/comments
+// lists once on mount. Without something tying them together, adding,
+// updating, or deleting an entry in a Manage tab only updates that tab's
+// own list — every other tab keeps showing stale data until the page is
+// reloaded. To fix that without a big state-lifting refactor, a Manage tab
+// broadcasts a small event any time its list actually changes (whether the
+// change went to MongoDB or fell back to localStorage), and any component
+// that reads the same resource listens for that event and re-fetches.
+const SAVED_ITEMS_CHANGED_EVENT = "saved-items-changed";
+
+function broadcastSavedItemsChanged(apiPath) {
+  window.dispatchEvent(new CustomEvent(SAVED_ITEMS_CHANGED_EVENT, { detail: { apiPath } }));
+}
+
+function useSavedItemsChangedListener(apiPath, onChange) {
+  // Keep a ref to the latest callback so the listener always invokes the
+  // current render's closure (with up-to-date state) rather than whichever
+  // one happened to be in scope when the listener was first attached.
+  const onChangeRef = React.useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.apiPath === apiPath) onChangeRef.current();
+    };
+    window.addEventListener(SAVED_ITEMS_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(SAVED_ITEMS_CHANGED_EVENT, handler);
+  }, [apiPath]);
+}
+
+// A network-level failure (no response at all — DNS error, connection
+// refused, offline, etc.) is the only case that should fall back to
+// localStorage. A response that came back but reported an application
+// error (400/404/409, e.g. "duplicate id") is not a "backend unavailable"
+// situation and must be surfaced to the user as-is, not silently swallowed
+// into a local write.
+async function submitManagedResource(url, options) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (networkErr) {
+    const err = new Error(networkErr.message || "Network error");
+    err.isNetworkFailure = true;
+    throw err;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || "Request couldn't be processed");
+    err.isNetworkFailure = false;
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
 // ── Export helpers (JSON / XML / CSV / TXT) ─────────────────────────────
 
 function downloadFile(filename, content, mimeType) {
@@ -397,7 +455,7 @@ function ExportBar({ data, filenameBase }) {
   if (!rows.length) return null;
   return (
     <div className="row export-bar" style={{ gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
-      <span style={{ fontSize: 13, opacity: 0.65, alignSelf: "center" }}>Export results:</span>
+      <span style={{ fontsize: 14, opacity: 0.65, alignSelf: "center" }}>Export results:</span>
       {["json", "xml", "csv", "txt"].map((format) => (
         <button
           key={format}
@@ -446,6 +504,12 @@ function useSavedItems(apiPath, storageKey) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useSavedItemsChangedListener(apiPath, () => {
+    apiGet(apiPath)
+      .then((data) => setItems(Array.isArray(data) ? data : []))
+      .catch(() => setItems(getStoredChannels(storageKey)));
+  });
 
   return { items, loaded };
 }
@@ -761,6 +825,8 @@ function ChannelSearchTab() {
     refreshChannels();
   }, []);
 
+  useSavedItemsChangedListener("channels", refreshChannels);
+
   const clearResults = () => {
     setVideos(null);
     setChannelResults(null);
@@ -1029,7 +1095,7 @@ function ChannelSearchTab() {
                     ))}
                   </select>
                 ) : (
-                  <p style={{ margin: 0, opacity: 0.6, fontSize: 13 }}>
+                  <p style={{ margin: 0, opacity: 0.6, fontsize: 14 }}>
                     No saved channels. Add some in the <b>Manage Channels</b> tab, or check the box above to enter an ID manually.
                   </p>
                 )}
@@ -1320,27 +1386,37 @@ function ManagedResourceTab({
   const createItem = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/${apiPath}`, {
+      const data = await submitManagedResource(`/api/${apiPath}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), id: id.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Couldn't add ${entityLabel}`);
       await refreshItems();
       setSelectedId(data.id);
       setName(data.name);
       setId(data.id);
+      broadcastSavedItemsChanged(apiPath);
       notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} added successfully.`, "success");
     } catch (err) {
-      const fallbackItem = { name: name.trim(), id: id.trim() };
-      addStoredChannel(fallbackItem, storageKey);
-      const fallback = getStoredChannels(storageKey);
-      setItems(fallback);
-      setSelectedId(fallbackItem.id);
-      setName(fallbackItem.name);
-      setId(fallbackItem.id);
-      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} saved locally because the backend is unavailable.`, "success");
+      if (!err.isNetworkFailure) {
+        // The backend is reachable and rejected the request (e.g. duplicate
+        // id) — show the real reason instead of masking it as a local save.
+        notify(err.message || `Couldn't add ${entityLabel}.`);
+        setLoading(false);
+        return;
+      }
+      try {
+        const fallbackItem = { name: name.trim(), id: id.trim() };
+        const fallback = addStoredChannel(fallbackItem, storageKey);
+        setItems(fallback);
+        setSelectedId(fallbackItem.id);
+        setName(fallbackItem.name);
+        setId(fallbackItem.id);
+        broadcastSavedItemsChanged(apiPath);
+        notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} saved locally because the backend is unavailable.`, "success");
+      } catch (localErr) {
+        notify(localErr.message || `Couldn't add ${entityLabel}.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -1352,25 +1428,34 @@ function ManagedResourceTab({
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/${apiPath}/${encodeURIComponent(selectedId)}`, {
+      const data = await submitManagedResource(`/api/${apiPath}/${encodeURIComponent(selectedId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), id: id.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Couldn't update ${entityLabel}`);
       await refreshItems();
       setSelectedId(data.id);
       setName(data.name);
       setId(data.id);
+      broadcastSavedItemsChanged(apiPath);
       notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} updated successfully.`, "success");
     } catch (err) {
-      const updated = updateStoredChannel(selectedId, { name: name.trim(), id: id.trim() }, storageKey);
-      setItems(updated);
-      setSelectedId(id.trim());
-      setName(name.trim());
-      setId(id.trim());
-      notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} updated locally because the backend is unavailable.`, "success");
+      if (!err.isNetworkFailure) {
+        notify(err.message || `Couldn't update ${entityLabel}.`);
+        setLoading(false);
+        return;
+      }
+      try {
+        const updated = updateStoredChannel(selectedId, { name: name.trim(), id: id.trim() }, storageKey);
+        setItems(updated);
+        setSelectedId(id.trim());
+        setName(name.trim());
+        setId(id.trim());
+        broadcastSavedItemsChanged(apiPath);
+        notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} updated locally because the backend is unavailable.`, "success");
+      } catch (localErr) {
+        notify(localErr.message || `Couldn't update ${entityLabel}.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -1382,22 +1467,27 @@ function ManagedResourceTab({
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/${apiPath}/${encodeURIComponent(selectedId)}`, {
+      await submitManagedResource(`/api/${apiPath}/${encodeURIComponent(selectedId)}`, {
         method: "DELETE",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Couldn't delete ${entityLabel}`);
       await refreshItems();
       setSelectedId("");
       setName("");
       setId("");
+      broadcastSavedItemsChanged(apiPath);
       notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} deleted successfully.`, "success");
     } catch (err) {
+      if (!err.isNetworkFailure) {
+        notify(err.message || `Couldn't delete ${entityLabel}.`);
+        setLoading(false);
+        return;
+      }
       const updated = deleteStoredChannel(selectedId, storageKey);
       setItems(updated);
       setSelectedId("");
       setName("");
       setId("");
+      broadcastSavedItemsChanged(apiPath);
       notify(`${entityLabel[0].toUpperCase()}${entityLabel.slice(1)} removed locally because the backend is unavailable.`, "success");
     } finally {
       setLoading(false);
@@ -1565,6 +1655,8 @@ function ChannelTab({ active = true }) {
   useEffect(() => {
     loadSavedChannels();
   }, []);
+
+  useSavedItemsChangedListener("channels", loadSavedChannels);
 
 
   const handleChannelSelect = (e) => {
@@ -1774,7 +1866,7 @@ function ChannelTab({ active = true }) {
                 <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Public playlists</h3>
                 {!playlists && (
                   <>
-                    <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
+                    <p style={{ margin: "0 0 10px", fontsize: 14, color: "var(--muted)" }}>
                       Fetch public details from a channel.
                     </p>
                     <button
@@ -1790,7 +1882,7 @@ function ChannelTab({ active = true }) {
                   </>
                 )}
                 {playlists?.length === 0 && (
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>No public playlists found for this channel.</p>
+                  <p style={{ margin: 0, fontsize: 14, color: "var(--muted)" }}>No public playlists found for this channel.</p>
                 )}
               </div>
               {playlists?.length > 0 && (
@@ -1852,7 +1944,7 @@ function ChannelTab({ active = true }) {
               )}
               <div style={{ marginTop: 16 }}>
                 <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Latest Uploads</h3>
-                <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--muted)" }}>
+                <p style={{ margin: "0 0 10px", fontsize: 14, color: "var(--muted)" }}>
                   Pull latest videos from a channel.
                 </p>
                 <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
@@ -1958,6 +2050,7 @@ function CommentCard({ comment, children }) {
               src={comment.authorProfileImageUrl}
               alt={comment.authorName}
               className="comment-avatar"
+              style={{ width: '80px', height: '80px', borderRadius: '4px', objectFit: 'cover' }}
             />
           )}
           <div className="comment-meta-small">
@@ -2541,7 +2634,7 @@ function PlaylistTab({ active = true }) {
                   <ImageWithFallback
                     src={playlistInfo.thumbnail}
                     alt={playlistInfo.title}
-                    style={{ width: 160, height: 90, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+                    style={{ width: 240, height: 135, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
                   />
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -2555,13 +2648,13 @@ function PlaylistTab({ active = true }) {
                 </div>
               </div>
               <div style={{ marginTop: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Description: </span>
+                <span style={{ fontsize: 14, fontWeight: 600, color: "var(--text)" }}>Description: </span>
                 {playlistInfo.description ? (
                   <div className="description" style={{ marginTop: 4, maxHeight: "none", overflow: "visible" }}>
                     <LinkifiedText text={playlistInfo.description} />
                   </div>
                 ) : (
-                  <span style={{ fontSize: 13, color: "var(--muted)" }}>N/A</span>
+                  <span style={{ fontsize: 14, color: "var(--muted)" }}>N/A</span>
                 )}
               </div>
             </div>

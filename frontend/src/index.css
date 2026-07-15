@@ -61,7 +61,7 @@ body {
 }
 
 .sidebar-header h1 {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   margin: 0;
   color: var(--text);
@@ -116,7 +116,7 @@ body {
 
 .app {
   width: 100%;
-  max-width: 900px;
+  max-width: 1200px;
 }
 
 .panel {
@@ -134,7 +134,7 @@ body {
 }
 
 .field label {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
 }
 
@@ -249,7 +249,7 @@ button.secondary:hover {
 
 .result-count {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   margin: 16px 0 8px;
 }
 
@@ -264,8 +264,8 @@ button.secondary:hover {
 }
 
 .video-card img {
-  width: 160px;
-  height: 90px;
+  width: 320px;
+  height: 180px;
   object-fit: cover;
   border-radius: 6px;
   flex-shrink: 0;
@@ -277,7 +277,7 @@ button.secondary:hover {
 }
 
 .video-card .title {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   margin: 0 0 6px;
 }
@@ -295,7 +295,7 @@ button.secondary:hover {
   display: grid;
   grid-template-columns: 1fr;
   gap: 4px 0;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   margin-bottom: 6px;
 }
@@ -325,7 +325,7 @@ button.secondary:hover {
 
 
 .description {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
   white-space: pre-wrap;
   max-height: 80px;
@@ -365,9 +365,9 @@ button.secondary:hover {
 }
 
 .comment-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 80px;
+  height: 80px;
+  border-radius: 4px;
   object-fit: cover;
   flex-shrink: 0;
   border: 1px solid var(--border);
@@ -411,7 +411,7 @@ button.secondary:hover {
   gap: 4px 0;
   color: var(--muted);
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .replies-list {
@@ -446,7 +446,7 @@ button.secondary:hover {
   padding: 10px 14px;
   border-radius: 8px;
   margin-bottom: 20px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .category-btn {
@@ -455,7 +455,7 @@ button.secondary:hover {
   color: var(--muted);
   padding: 6px 16px;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   font-weight: 500;

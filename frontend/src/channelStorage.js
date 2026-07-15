@@ -39,12 +39,29 @@ export function getStoredChannels(storageKey = DEFAULT_STORAGE_KEY) {
 }
 
 export function addStoredChannel(channel, storageKey = DEFAULT_STORAGE_KEY) {
-  const next = [...readChannels(storageKey), channel];
+  const existing = readChannels(storageKey);
+  if (existing.some((entry) => entry.id === channel.id)) {
+    const err = new Error("An entry with that id already exists.");
+    err.status = 409;
+    throw err;
+  }
+  const next = [...existing, channel];
   return writeChannels(next, storageKey);
 }
 
 export function updateStoredChannel(currentId, updatedChannel, storageKey = DEFAULT_STORAGE_KEY) {
-  const next = readChannels(storageKey).map((entry) => (entry.id === currentId ? { ...entry, ...updatedChannel } : entry));
+  const existing = readChannels(storageKey);
+  if (!existing.some((entry) => entry.id === currentId)) {
+    const err = new Error("Entry not found.");
+    err.status = 404;
+    throw err;
+  }
+  if (currentId !== updatedChannel.id && existing.some((entry) => entry.id === updatedChannel.id)) {
+    const err = new Error("An entry with the new id already exists.");
+    err.status = 409;
+    throw err;
+  }
+  const next = existing.map((entry) => (entry.id === currentId ? { ...entry, ...updatedChannel } : entry));
   return writeChannels(next, storageKey);
 }
 

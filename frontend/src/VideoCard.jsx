@@ -36,7 +36,7 @@ export default function VideoCard({ v, showTags = false }) {
         {/* Description with label */}
         {v.description && (
           <div className="description-wrapper" style={{ marginTop: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+            <div style={{ fontWeight: 600, fontsize: 14, color: 'var(--text)', marginBottom: 4 }}>
               Description:
             </div>
             <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
@@ -48,13 +48,13 @@ export default function VideoCard({ v, showTags = false }) {
         {/* Tags with label */}
         {showTags && v.tags && v.tags.length > 0 && (
           <div className="tags-wrapper" style={{ marginTop: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+            <div style={{ fontWeight: 600, fontsize: 14, color: 'var(--text)', marginBottom: 4 }}>
               Tags:
             </div>
             <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
               <div>
                 {v.tags.map((tag, i) => (
-                  <span key={i} style={{ display: "block", fontSize: 12, color: 'var(--muted)' }}>
+                  <span key={i} style={{ display: "block", fontSize: 14, color: 'var(--muted)' }}>
                     {tag}
                   </span>
                 ))}
@@ -66,7 +66,7 @@ export default function VideoCard({ v, showTags = false }) {
         {/* Region restrictions with label */}
         {showTags && v.regionRestriction?.blocked && v.regionRestriction.blocked.length > 0 && (
           <div className="region-restriction-wrapper" style={{ marginTop: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+            <div style={{ fontWeight: 600, fontsize: 14, color: 'var(--text)', marginBottom: 4 }}>
               Restricted in:
             </div>
             <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
