@@ -475,6 +475,73 @@ function SavedItemSelect({ items, loaded, onSelect, label, placeholder }) {
   );
 }
 
+// Category filters ("all" / "standard" / "shorts" / "live") support
+// multi-select: clicking a second specific category adds it alongside the
+// first; clicking a selected category again removes it (falling back to
+// "all" if nothing is left selected); selecting every specific category
+// collapses back to "all"; and "all" is mutually exclusive with everything
+// else, so picking it — or picking a specific category while "all" is
+// active — resets the selection to just that click.
+function toggleCategoryFilter(setFilter, clicked) {
+  setFilter((prev) => {
+    if (clicked === "all") return new Set(["all"]);
+    if (prev.has("all")) return new Set([clicked]);
+    const next = new Set(prev);
+    if (next.has(clicked)) {
+      next.delete(clicked);
+      if (next.size === 0) return new Set(["all"]);
+    } else {
+      next.add(clicked);
+      if (next.size === 3) return new Set(["all"]);
+    }
+    return next;
+  });
+}
+
+function matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive }) {
+  if (categoryFilter.has("all")) return true;
+  return (
+    (isStandard && categoryFilter.has("standard")) ||
+    (isShort && categoryFilter.has("shorts")) ||
+    (isLive && categoryFilter.has("live"))
+  );
+}
+
+function CategoryFilterButtons({ categoryFilter, setCategoryFilter, counts }) {
+  return (
+    <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+      <button
+        type="button"
+        className={`category-btn ${categoryFilter.has("all") ? "active" : ""}`}
+        onClick={() => toggleCategoryFilter(setCategoryFilter, "all")}
+      >
+        All ({counts.all})
+      </button>
+      <button
+        type="button"
+        className={`category-btn ${categoryFilter.has("standard") ? "active" : ""}`}
+        onClick={() => toggleCategoryFilter(setCategoryFilter, "standard")}
+      >
+        Standard ({counts.standard})
+      </button>
+      <button
+        type="button"
+        className={`category-btn ${categoryFilter.has("shorts") ? "active" : ""}`}
+        onClick={() => toggleCategoryFilter(setCategoryFilter, "shorts")}
+      >
+        Shorts ({counts.shorts})
+      </button>
+      <button
+        type="button"
+        className={`category-btn ${categoryFilter.has("live") ? "active" : ""}`}
+        onClick={() => toggleCategoryFilter(setCategoryFilter, "live")}
+      >
+        Live ({counts.live})
+      </button>
+    </div>
+  );
+}
+
 // ── Tab: Single Video Details ────────────────────────────────────────────
 
 function VideoTab() {
@@ -648,15 +715,11 @@ function ChannelSearchTab() {
 
   const sortedVideos = videos ? sortVideosClient(videos, sortOption) : null;
 
-  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState(() => new Set(["all"]));
 
   // ── Sync live checkbox with category filter ──
   useEffect(() => {
-    if (liveFilter) {
-      setCategoryFilter("live");
-    } else {
-      setCategoryFilter("all");
-    }
+    setCategoryFilter(new Set([liveFilter ? "live" : "all"]));
   }, [liveFilter]);
 
   const displayedVideos = useMemo(() => {
@@ -665,11 +728,7 @@ function ChannelSearchTab() {
       const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
       const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
       const isStandard = !isLive && !isShort;
-      if (categoryFilter === "all") return true;
-      if (categoryFilter === "standard") return isStandard;
-      if (categoryFilter === "shorts") return isShort;
-      if (categoryFilter === "live") return isLive;
-      return true;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
     });
   }, [sortedVideos, categoryFilter]);
 
@@ -735,7 +794,7 @@ function ChannelSearchTab() {
     setPlKeywordChannel("");
     setMaxResults("50");
     setLiveFilter(false);
-    setCategoryFilter("all");
+    setCategoryFilter(new Set(["all"]));
   };
 
   const submit = async (e) => {
@@ -1129,40 +1188,11 @@ function ChannelSearchTab() {
 
           {/* Category buttons */}
           {!liveFilter && (
-            <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
-                onClick={() => setCategoryFilter("all")}
-              >
-                All ({counts.all})
-              </button>
-              <button
-                type="button"
-                className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
-                onClick={() => setCategoryFilter("standard")}
-              >
-                Standard ({counts.standard})
-              </button>
-              <button
-                type="button"
-                className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
-                onClick={() => setCategoryFilter("shorts")}
-              >
-                Shorts ({counts.shorts})
-              </button>
-              <button
-                type="button"
-                className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
-                onClick={() => setCategoryFilter("live")}
-              >
-                Live ({counts.live})
-              </button>
-            </div>
+            <CategoryFilterButtons categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} counts={counts} />
           )}
 
           <p className="result-count" style={{ marginTop: 0 }}>
-            {categoryFilter === "all"
+            {categoryFilter.has("all")
               ? `Total videos: ${fmtCount(sortedVideos.length)}`
               : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(sortedVideos.length)} videos`}
           </p>
@@ -1517,7 +1547,7 @@ function ChannelTab({ active = true }) {
   const [channels, setChannels] = useState([]);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
 
-  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState(() => new Set(["all"]));
 
   const loadSavedChannels = async () => {
     try {
@@ -1664,11 +1694,7 @@ function ChannelTab({ active = true }) {
       const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
       const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
       const isStandard = !isLive && !isShort;
-      if (categoryFilter === "all") return true;
-      if (categoryFilter === "standard") return isStandard;
-      if (categoryFilter === "shorts") return isShort;
-      if (categoryFilter === "live") return isLive;
-      return true;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
     });
   }, [latestVideos, categoryFilter]);
 
@@ -1868,39 +1894,10 @@ function ChannelTab({ active = true }) {
                     <ExportBar data={displayedVideos} filenameBase="channel-latest-videos" />
 
                     {/* Category buttons */}
-                    <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
-                        onClick={() => setCategoryFilter("all")}
-                      >
-                        All ({counts.all})
-                      </button>
-                      <button
-                        type="button"
-                        className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
-                        onClick={() => setCategoryFilter("standard")}
-                      >
-                        Standard ({counts.standard})
-                      </button>
-                      <button
-                        type="button"
-                        className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
-                        onClick={() => setCategoryFilter("shorts")}
-                      >
-                        Shorts ({counts.shorts})
-                      </button>
-                      <button
-                        type="button"
-                        className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
-                        onClick={() => setCategoryFilter("live")}
-                      >
-                        Live ({counts.live})
-                      </button>
-                    </div>
+                    <CategoryFilterButtons categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} counts={counts} />
 
                     <p className="result-count">
-                      {categoryFilter === "all"
+                      {categoryFilter.has("all")
                         ? `Video count: ${fmtCount(latestVideos.length)}`
                         : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(latestVideos.length)} videos`}
                     </p>
@@ -2365,7 +2362,7 @@ function PlaylistTab({ active = true }) {
   const [titleSearch, setTitleSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState(() => new Set(["all"]));
   const { items: savedPlaylists, loaded: savedPlaylistsLoaded } = useSavedItems("playlists", "yt-data-saved-playlists");
 
   const filteredVideos = (() => {
@@ -2381,11 +2378,7 @@ function PlaylistTab({ active = true }) {
       const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
       const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
       const isStandard = !isLive && !isShort;
-      if (categoryFilter === "all") return true;
-      if (categoryFilter === "standard") return isStandard;
-      if (categoryFilter === "shorts") return isShort;
-      if (categoryFilter === "live") return isLive;
-      return true;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
     });
   }, [filteredVideos, categoryFilter]);
 
@@ -2457,7 +2450,7 @@ function PlaylistTab({ active = true }) {
     setNextPageToken(null);
     setHasMorePages(false);
     setTotalVideoCount(0);
-    setCategoryFilter("all");
+    setCategoryFilter(new Set(["all"]));
   };
 
   return (
@@ -2539,36 +2532,7 @@ function PlaylistTab({ active = true }) {
             filenameBase="playlist-details"
           />
           {/* Category buttons */}
-          <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "all" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("all")}
-            >
-              All ({counts.all})
-            </button>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "standard" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("standard")}
-            >
-              Standard ({counts.standard})
-            </button>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "shorts" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("shorts")}
-            >
-              Shorts ({counts.shorts})
-            </button>
-            <button
-              type="button"
-              className={`category-btn ${categoryFilter === "live" ? "active" : ""}`}
-              onClick={() => setCategoryFilter("live")}
-            >
-              Live ({counts.live})
-            </button>
-          </div>
+          <CategoryFilterButtons categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} counts={counts} />
           {playlistInfo && Object.keys(playlistInfo).length > 0 && (
             <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
               <h3>Playlist Details</h3>
@@ -2603,7 +2567,7 @@ function PlaylistTab({ active = true }) {
             </div>
           )}
           <p className="result-count" style={{ marginTop: 16 }}>
-            {categoryFilter === "all"
+            {categoryFilter.has("all")
               ? `Video count: ${fmtCount(totalVideoCount)}`
               : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(filteredVideos.length)} videos`
             }
