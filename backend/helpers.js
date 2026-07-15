@@ -238,6 +238,13 @@ export function keywordMatches(fields, keyword) {
   });
 }
 
+// In helpers.js
+export function formatAvatarUrl(url) {
+  if (!url) return null;
+  // Replace any =sXX with =s88 (where XX is one or more digits)
+  return url.replace(/=s\d+/, '=s88');
+}
+
 // ── Per-field keyword matching ──────────────────────────────────────────
 
 /**

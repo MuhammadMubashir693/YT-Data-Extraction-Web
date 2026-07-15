@@ -2077,7 +2077,7 @@ function CommentCard({ comment, children, parentCommentId }) {
             )}
             <span><b>Channel ID:</b> {comment.authorChannelId}</span>
             <span>
-              <b>Channel Name:</b>{" "}
+              <b>Display Name:</b>{" "}
               {comment.authorChannelUrl ? (
                 <a href={comment.authorChannelUrl} target="_blank" rel="noreferrer">{comment.authorName}</a>
               ) : (
@@ -2206,7 +2206,13 @@ function CommentsTab({ active = true }) {
     setError("");
     setLoading(true);
     try {
-      const params = { q: input, sort: "top", maxResults: 50 };
+      // Map the sort value to YouTube's API sort parameter
+      const apiSort = sort === "top" ? "relevance" : "time";
+      const params = {
+        q: input,
+        sort: sort,  // Pass the user's sort selection
+        maxResults: 50
+      };
       if (pageToken) params.pageToken = pageToken;
       const data = await apiGet("comments", params);
       setThreads((prev) => [...prev, ...(data.threads || [])]);
@@ -2245,7 +2251,7 @@ function CommentsTab({ active = true }) {
     setHasSearched(true);
     setExpandedThreads({});
     setReplyPages({});
-    await fetchCommentsPage();
+    await fetchCommentsPage({ pageToken: null });
   };
 
   const loadMore = async () => {

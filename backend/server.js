@@ -1,5 +1,6 @@
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./swagger.js";
+import { formatAvatarUrl } from "./helpers.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -1565,7 +1566,7 @@ app.get("/api/comment", async (req, res) => {
       commentId: c.id,
       authorName: sn.authorDisplayName,
       authorChannelId: sn.authorChannelId?.value || "N/A",
-      authorProfileImageUrl: sn.authorProfileImageUrl || null,
+      authorProfileImageUrl: formatAvatarUrl(sn.authorProfileImageUrl) || null,
       textDisplay: sn.textDisplay || "",
       textOriginal: sn.textOriginal || "",
       likeCount: sn.likeCount ?? 0,
@@ -1672,7 +1673,7 @@ app.get("/api/comments", async (req, res) => {
             authorName: rs.authorDisplayName,
             authorChannelId: rs.authorChannelId?.value || "N/A",
             authorChannelUrl: rs.authorChannelUrl || null,
-            authorProfileImageUrl: rs.authorProfileImageUrl || null,
+            authorProfileImageUrl: formatAvatarUrl(rs.authorProfileImageUrl) || null,
             likeCount: rs.likeCount ?? 0,
             publishedAt: fmtDatetimeAt(rs.publishedAt),
             updatedAt: fmtDatetimeAt(rs.updatedAt),
@@ -1686,7 +1687,7 @@ app.get("/api/comments", async (req, res) => {
           authorName: sn.authorDisplayName,
           authorChannelId: sn.authorChannelId?.value || "N/A",
           authorChannelUrl: sn.authorChannelUrl || null,
-          authorProfileImageUrl: sn.authorProfileImageUrl || null,
+          authorProfileImageUrl: formatAvatarUrl(sn.authorProfileImageUrl) || null,
           likeCount: sn.likeCount ?? 0,
           publishedAt: fmtDatetimeAt(sn.publishedAt),
           updatedAt: fmtDatetimeAt(sn.updatedAt),
@@ -1814,7 +1815,7 @@ app.get("/api/comment-replies", async (req, res) => {
         authorName: rs.authorDisplayName,
         authorChannelId: rs.authorChannelId?.value || "N/A",
         authorChannelUrl: rs.authorChannelUrl || null,
-        authorProfileImageUrl: rs.authorProfileImageUrl || null,
+        authorProfileImageUrl: formatAvatarUrl(rs.authorProfileImageUrl) || null,
         likeCount: rs.likeCount ?? 0,
         publishedAt: fmtDatetimeAt(rs.publishedAt),
         updatedAt: fmtDatetimeAt(rs.updatedAt),
