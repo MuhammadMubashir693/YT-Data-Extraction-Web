@@ -289,6 +289,7 @@ export function shapeVideo(item, idOverride) {
     defaultLanguage: sid.defaultLanguage || "N/A",
     defaultAudioLanguage: sid.defaultAudioLanguage || "N/A",
     categoryId: sid.categoryId || null,
+    regionRestriction: cdet.regionRestriction || null,
     publishedAtRaw: sid.publishedAt,
     scheduledStartTime: liveDetails.scheduledStartTime ? fmtDatetime(liveDetails.scheduledStartTime) : null,
     actualStartTime: liveDetails.actualStartTime ? fmtDatetime(liveDetails.actualStartTime) : null,

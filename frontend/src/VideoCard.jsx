@@ -2,7 +2,7 @@
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
-import { fmtCount } from "../../backend/helpers.js";
+import { fmtCount, fmtCountry } from "../../backend/helpers.js";
 import { getCategoryName } from "./categoryMap.js";
 import { getLanguageName } from "./languageMap.js";
 
@@ -56,6 +56,24 @@ export default function VideoCard({ v, showTags = false }) {
                 {v.tags.map((tag, i) => (
                   <span key={i} style={{ display: "block", fontSize: 12, color: 'var(--muted)' }}>
                     {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Region restrictions with label */}
+        {showTags && v.regionRestriction?.blocked && v.regionRestriction.blocked.length > 0 && (
+          <div className="region-restriction-wrapper" style={{ marginTop: 8 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+              Restricted in:
+            </div>
+            <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+              <div>
+                {v.regionRestriction.blocked.map((code) => (
+                  <span key={code} style={{ display: "block", fontSize: 12, color: 'var(--muted)' }}>
+                    {fmtCountry(code)}
                   </span>
                 ))}
               </div>
