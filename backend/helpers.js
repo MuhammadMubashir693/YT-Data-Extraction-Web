@@ -86,15 +86,17 @@ async function resolveHandle(handle, ytFetch) {
 
 export function parseCommentId(text) {
   text = (text || "").trim();
-  if (/^[A-Za-z0-9_-]{20,}$/.test(text) && !/^[A-Za-z0-9_-]{11}$/.test(text)) {
+  // Allow dots, underscores, hyphens, alphanumerics, at least 8 chars.
+  // Exclude pure 11‑character video IDs.
+  if (/^[A-Za-z0-9_.-]{8,}$/.test(text) && !/^[A-Za-z0-9_-]{11}$/.test(text)) {
     return text;
   }
   try {
     const url = new URL(text);
-    const lc = url.searchParams.get("lc");
+    const lc = url.searchParams.get("lc") || url.searchParams.get("commentId");
     if (lc) return lc;
   } catch {
-    // ignore
+    // not a URL
   }
   return null;
 }

@@ -1929,6 +1929,11 @@ function ChannelTab({ active = true }) {
                             <ImageWithFallback src={playlist.thumbnail} alt={playlist.title} loading="lazy" />
                           )}
                           <div className="body">
+                            <p className="title">
+                              <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">
+                                {playlist.title}
+                              </a>
+                            </p>
                             <div><b>ID:</b> {playlist.playlistId}</div>
                             <div><b>URL:</b> <a href={playlist.playlistUrl} target="_blank" rel="noreferrer">{playlist.playlistUrl}</a></div>
                             <div><b>Title:</b> {playlist.title}</div>
@@ -2039,8 +2044,20 @@ function ChannelTab({ active = true }) {
 // their fields identically: ID, Channel ID, Channel Name (hyperlinked to
 // the commenter's channel), Published, Updated (only if different from
 // Published), Replies (when applicable), then the comment text.
-function CommentCard({ comment, children }) {
+// In App.jsx - Update CommentCard component
+function CommentCard({ comment, children, parentCommentId }) {
   const showUpdated = comment.updatedAt && comment.updatedAt !== comment.publishedAt;
+
+  // Extract parent ID from comment ID (everything before the dot)
+  // If the comment ID contains a dot, the part before it is the parent ID
+  let extractedParentId = null;
+  if (comment.commentId && comment.commentId.includes('.')) {
+    extractedParentId = comment.commentId.split('.')[0];
+  }
+
+  // Use passed parentCommentId, or comment.parentId, or the extracted one
+  const displayParentId = parentCommentId || comment.parentId || extractedParentId;
+
   return (
     <>
       <div className="comment-header" style={{ justifyContent: "space-between" }}>
@@ -2050,11 +2067,14 @@ function CommentCard({ comment, children }) {
               src={comment.authorProfileImageUrl}
               alt={comment.authorName}
               className="comment-avatar"
-              style={{ width: '80px', height: '80px', borderRadius: '4px', objectFit: 'cover' }}
             />
           )}
           <div className="comment-meta-small">
             <span><b>ID:</b> {comment.commentId}</span>
+            {/* Show Parent ID if we have one */}
+            {displayParentId && (
+              <span><b>Parent ID:</b> {displayParentId}</span>
+            )}
             <span><b>Channel ID:</b> {comment.authorChannelId}</span>
             <span>
               <b>Channel Name:</b>{" "}
@@ -2145,7 +2165,7 @@ function CommentTab() {
       {comment && (
         <div className="comment-thread" style={{ marginTop: 16 }}>
           <ExportBar data={comment} filenameBase="comment-details" />
-          <CommentCard comment={comment} />
+          <CommentCard comment={comment} parentCommentId={comment.parentId} />
         </div>
       )}
     </div>
@@ -2428,7 +2448,7 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
     <div className="replies-list" ref={containerRef}>
       {replyState.replies.map((reply) => (
         <div key={reply.commentId} className="comment-reply">
-          <CommentCard comment={reply} />
+          <CommentCard comment={reply} parentCommentId={thread.commentId} />
         </div>
       ))}
       {replyState.loading && <div className="message-box secondary" style={{ marginTop: 10 }}>Loading replies...</div>}
@@ -2634,7 +2654,7 @@ function PlaylistTab({ active = true }) {
                   <ImageWithFallback
                     src={playlistInfo.thumbnail}
                     alt={playlistInfo.title}
-                    style={{ width: 240, height: 135, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+                    style={{ width: 320, height: 180, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
                   />
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
