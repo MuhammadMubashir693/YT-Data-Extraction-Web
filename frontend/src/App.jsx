@@ -1852,7 +1852,9 @@ function ChannelTab({ active = true }) {
                 <span><b>Channel ID:</b> {channel.channelId}</span>
                 <span><b>Custom URL:</b> {channel.customUrl}</span>
                 <span><b>Created:</b> {channel.createdAt}</span>
-                <span><b>Country:</b> {channel.country}</span>
+                {channel.country !== "Country not available" && (
+                  <span><b>Country:</b> {channel.country}</span>
+                )}
                 <span><b>Subscribers:</b> {fmtCount(channel.subscriberCount)}</span>
                 <span><b>Total Views:</b> {fmtCount(channel.viewCount)}</span>
                 <span><b>Video Count:</b> {fmtCount(channel.videoCount)}</span>

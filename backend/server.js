@@ -20,6 +20,7 @@ import {
   keywordMatchesPerField,
   shapeVideo,
   durationToSeconds,
+  highResBannerUrl,
 } from "./helpers.js";
 
 dotenv.config();
@@ -1385,16 +1386,7 @@ app.get("/api/channel", async (req, res) => {
         thumb.medium?.url ||
         thumb.default?.url ||
         null;
-      const banner =
-        bs.image?.bannerExternalUrl ||
-        bs.image?.bannerImageUrl ||
-        bs.image?.bannerMobileImageUrl ||
-        bs.image?.bannerTabletImageUrl ||
-        bs.image?.bannerTabletLowImageUrl ||
-        bs.image?.bannerTvImageUrl ||
-        bs.image?.bannerTvLowImageUrl ||
-        bs.image?.bannerMobileLowImageUrl ||
-        null;
+      const banner = highResBannerUrl(bs);
 
       shaped = {
         channelId: ch.id,

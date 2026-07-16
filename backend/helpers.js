@@ -245,6 +245,50 @@ export function formatAvatarUrl(url) {
   return url.replace(/=s\d+/, '=s88');
 }
 
+/**
+ * `brandingSettings.image.bannerExternalUrl` is the original banner asset
+ * (recommended upload size 2560x1440) served through Google's image CDN
+ * with a size/crop instruction baked into the URL — and critically, that
+ * instruction can itself contain more than one "=" (e.g.
+ * "...=w1060-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj", where the
+ * "1,0000..." after the second "=" is crop-region data, not a separate
+ * param). YouTube defaults the width to a fairly small size, which is why
+ * the banner can look soft even though a much higher-res version is
+ * sitting behind the same image ID. To fix this, strip everything from the
+ * FIRST "=" onward (removing both the old width and the crop instructions)
+ * and append a large width request instead — the CDN serves back the
+ * largest size it actually has if the requested width exceeds it, so
+ * asking for 2560 always returns whichever is available, up to that cap.
+ */
+export function highResBannerUrl(bs) {
+  const image = bs?.image || {};
+  const ext = image.bannerExternalUrl;
+  if (ext && ext.includes("=")) {
+    return ext.replace(/=.*/, "=w2560");
+  }
+  if (ext) return `${ext}=w2560`;
+
+  // Fallback: explicit presets, ordered by resolution (highest first).
+  return (
+    image.bannerTabletExtraHdImageUrl || // 2560x424
+    image.bannerTvExtraHdImageUrl || // 2120x1192
+    image.bannerTvHighImageUrl || // 1920x1080
+    image.bannerTabletHdImageUrl || // 2276x377
+    image.bannerMobileExtraHdImageUrl || // 1440x395
+    image.bannerTvMediumImageUrl || // 1280x720
+    image.bannerMobileHdImageUrl || // 1280x360
+    image.bannerImageUrl || // 1060x175
+    image.bannerTabletImageUrl || // 1707x283
+    image.bannerMobileMediumHdImageUrl || // 960x263
+    image.bannerTvImageUrl ||
+    image.bannerTabletLowImageUrl ||
+    image.bannerMobileImageUrl ||
+    image.bannerTvLowImageUrl ||
+    image.bannerMobileLowImageUrl ||
+    null
+  );
+}
+
 // ── Per-field keyword matching ──────────────────────────────────────────
 
 /**
