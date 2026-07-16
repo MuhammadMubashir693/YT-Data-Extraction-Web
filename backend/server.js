@@ -1578,6 +1578,7 @@ app.get("/api/comment", async (req, res) => {
       likeCount: sn.likeCount ?? 0,
       publishedAt: fmtDatetime(sn.publishedAt),
       updatedAt: fmtDatetime(sn.updatedAt),
+      videoId: sn.videoId || null,
     });
   } catch (err) {
     handleError(res, err);
@@ -1686,6 +1687,7 @@ app.get("/api/comments", async (req, res) => {
             textDisplay: rs.textDisplay || "",
             textOriginal: rs.textOriginal || "",
             publishedAtRaw: rs.publishedAt,
+            videoId,
           };
         });
         return {
@@ -1702,6 +1704,7 @@ app.get("/api/comments", async (req, res) => {
           replyCount: thread.snippet.totalReplyCount ?? 0,
           replies,
           publishedAtRaw: sn.publishedAt,
+          videoId,
         };
       });
 
@@ -1828,6 +1831,7 @@ app.get("/api/comment-replies", async (req, res) => {
         textDisplay: rs.textDisplay || "",
         textOriginal: rs.textOriginal || "",
         publishedAtRaw: rs.publishedAt,
+        videoId: rs.videoId || null,
       };
     });
 
