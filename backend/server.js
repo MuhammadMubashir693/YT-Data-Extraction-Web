@@ -1360,6 +1360,23 @@ app.get("/api/channel", async (req, res) => {
       const st = ch.statistics || {};
       const cd = ch.contentDetails || {};
       const uploadsPlaylistId = cd.relatedPlaylists?.uploads || null;
+      const trailerVideoId = bs.channel?.unsubscribedTrailer || null;
+      let trailerVideo = null;
+      if (trailerVideoId) {
+        try {
+          const trailerData = await ytFetch("videos", {
+            part: "snippet,contentDetails,statistics",
+            id: trailerVideoId,
+          });
+          if (trailerData.items?.length) {
+            trailerVideo = shapeVideo(trailerData.items[0], trailerVideoId);
+          }
+        } catch {
+          // Non-fatal: the trailer video may have been deleted/made private
+          // since the channel set it. Just omit it rather than failing the
+          // whole channel lookup.
+        }
+      }
       const thumb = sn.thumbnails || {};
       const thumbUrl =
         thumb.high?.url ||
@@ -1392,6 +1409,7 @@ app.get("/api/channel", async (req, res) => {
         subscriberCount: st.subscriberCount ?? "N/A",
         viewCount: st.viewCount ?? "N/A",
         uploadsPlaylistId,
+        trailerVideo,
       };
 
       channelCache.set(chId, shaped);
@@ -1568,6 +1586,11 @@ app.get("/api/comment", async (req, res) => {
     }
     const c = data.items[0];
     const sn = c.snippet;
+    // YouTube's API only reliably returns `videoId` in the snippet for
+    // top-level comments — it's typically omitted for replies. If the user
+    // pasted a full URL (e.g. one with both `v=` and `lc=`), fall back to
+    // parsing the video ID from that so timestamp links still work.
+    const videoId = sn.videoId || parseVideoId(raw) || null;
     res.json({
       commentId: c.id,
       authorName: sn.authorDisplayName,
@@ -1578,7 +1601,7 @@ app.get("/api/comment", async (req, res) => {
       likeCount: sn.likeCount ?? 0,
       publishedAt: fmtDatetime(sn.publishedAt),
       updatedAt: fmtDatetime(sn.updatedAt),
-      videoId: sn.videoId || null,
+      videoId,
     });
   } catch (err) {
     handleError(res, err);
@@ -1805,6 +1828,10 @@ app.get("/api/comment-replies", async (req, res) => {
     if (!parentId) {
       return res.status(400).json({ error: "Missing parentId query parameter." });
     }
+    // The caller (Comment Threads tab) already knows which video this
+    // thread belongs to — pass it through since replies fetched this way
+    // don't reliably include `videoId` in their own snippet.
+    const knownVideoId = req.query.videoId ? String(req.query.videoId) : null;
     const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
 
     const requestedMaxReplies = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 20, 1), 50);
@@ -1831,7 +1858,7 @@ app.get("/api/comment-replies", async (req, res) => {
         textDisplay: rs.textDisplay || "",
         textOriginal: rs.textOriginal || "",
         publishedAtRaw: rs.publishedAt,
-        videoId: rs.videoId || null,
+        videoId: rs.videoId || knownVideoId,
       };
     });
 

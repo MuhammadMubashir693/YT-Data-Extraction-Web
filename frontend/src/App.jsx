@@ -1858,8 +1858,19 @@ function ChannelTab({ active = true }) {
                 <span><b>Video Count:</b> {fmtCount(channel.videoCount)}</span>
               </div>
               {channel.description && (
-                <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
-                  <LinkifiedText text={channel.description} />
+                <div className="description-wrapper" style={{ marginTop: 10 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 4 }}>
+                    Description:
+                  </div>
+                  <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+                    <LinkifiedText text={channel.description} />
+                  </div>
+                </div>
+              )}
+              {channel.trailerVideo && (
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ margin: "0 0 10px", fontSize: 16 }}>Unsubscribed trailer</h3>
+                  <VideoCard v={channel.trailerVideo} />
                 </div>
               )}
               <div style={{ marginTop: 16 }}>
