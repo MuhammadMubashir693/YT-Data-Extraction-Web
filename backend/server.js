@@ -343,6 +343,19 @@ function isCommentsDisabledError(err) {
   return err?.response?.status === 403 && msg.includes("disabled comments");
 }
 
+// YouTube returns this when a playlist ID technically exists (e.g. a
+// channel's auto-generated "uploads" playlist) but has never had any items
+// added to it — which in practice means "this channel/playlist is empty",
+// not a real 404. We treat it as an empty-result case rather than an error.
+function isPlaylistNotFoundError(err) {
+  const errors = err?.response?.data?.error?.errors;
+  if (Array.isArray(errors)) {
+    return errors.some((e) => e.reason === "playlistNotFound");
+  }
+  const msg = (err?.response?.data?.error?.message || "").toLowerCase();
+  return err?.response?.status === 404 && msg.includes("playlist") && msg.includes("cannot be found");
+}
+
 function handleError(res, err) {
   const apiMsg = err?.response?.data?.error?.message;
   if (isCommentsDisabledError(err)) {
@@ -1280,7 +1293,24 @@ app.get("/api/channel-latest-videos", async (req, res) => {
       };
       if (pageToken) itemsParams.pageToken = pageToken;
 
-      const itemsResp = await ytFetch("playlistItems", itemsParams);
+      let itemsResp;
+      try {
+        itemsResp = await ytFetch("playlistItems", itemsParams);
+      } catch (err) {
+        if (isPlaylistNotFoundError(err)) {
+          result = {
+            videos: [],
+            count: 0,
+            uploadsPlaylistId,
+            nextPageToken: null,
+            prevPageToken: null,
+            message: "This channel has no uploads.",
+          };
+          channelLatestVideosCache.set(key, result);
+          return res.json(result);
+        }
+        throw err;
+      }
       const nextPageToken = itemsResp.nextPageToken || null;
       const prevPageToken = itemsResp.prevPageToken || null;
 
@@ -1289,7 +1319,14 @@ app.get("/api/channel-latest-videos", async (req, res) => {
         .filter(Boolean);
 
       if (!videoIds.length) {
-        result = { videos: [], count: 0, uploadsPlaylistId, nextPageToken, prevPageToken };
+        result = {
+          videos: [],
+          count: 0,
+          uploadsPlaylistId,
+          nextPageToken,
+          prevPageToken,
+          message: "This channel has no uploads.",
+        };
       } else {
         const vResp = await ytFetch("videos", {
           part: "snippet,contentDetails,statistics,liveStreamingDetails",
@@ -1942,7 +1979,16 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
   do {
     const params = { part: "snippet", playlistId, maxResults: 50 };
     if (nextPage) params.pageToken = nextPage;
-    const resp = await ytFetchWithPaginationDelay("playlistItems", params, pageNumber);
+    let resp;
+    try {
+      resp = await ytFetchWithPaginationDelay("playlistItems", params, pageNumber);
+    } catch (err) {
+      // An empty playlist (e.g. a channel's uploads playlist before it has
+      // ever had a video) — YouTube reports this as "not found" rather
+      // than returning an empty item list. Treat it as zero videos.
+      if (isPlaylistNotFoundError(err)) break;
+      throw err;
+    }
     for (const item of resp.items || []) {
       const vidId = item.snippet?.resourceId?.videoId;
       if (vidId) videoIds.push(vidId);
@@ -2018,7 +2064,7 @@ app.get("/api/playlist", async (req, res) => {
     const { playlistInfo, items } = cached;
 
     if (!items.length) {
-      return res.json({ playlistInfo, videos: [], count: 0 });
+      return res.json({ playlistInfo, videos: [], count: 0, message: "This playlist is empty." });
     }
 
     // Sort a copy so the cached order/reference stays stable across requests.

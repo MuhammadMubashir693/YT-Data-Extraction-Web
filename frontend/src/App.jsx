@@ -1633,6 +1633,7 @@ function ChannelTab({ active = true }) {
   const [latestError, setLatestError] = useState("");
   const [latestNextToken, setLatestNextToken] = useState(null);
   const [latestPrevToken, setLatestPrevToken] = useState(null);
+  const [latestMessage, setLatestMessage] = useState("");
 
   const [channels, setChannels] = useState([]);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
@@ -1698,6 +1699,7 @@ function ChannelTab({ active = true }) {
     setLatestCount(10);
     setLatestNextToken(null);
     setLatestPrevToken(null);
+    setLatestMessage("");
     setPlaylists(null);
     setPlaylistsError("");
     setPlaylistsLoading(false);
@@ -1732,6 +1734,7 @@ function ChannelTab({ active = true }) {
       setLatestVideos(data.videos || []);
       setLatestNextToken(data.nextPageToken || null);
       setLatestPrevToken(data.prevPageToken || null);
+      setLatestMessage(data.message || "");
     } catch (err) {
       setLatestError(err.message);
     } finally {
@@ -2013,9 +2016,13 @@ function ChannelTab({ active = true }) {
                     </p>
 
                     <div>
-                      {displayedVideos.map(({ description: _desc, ...v }) => (
-                        <VideoCard key={v.videoId} v={v} />
-                      ))}
+                      {displayedVideos.length === 0 && latestMessage ? (
+                        <p className="result-count" style={{ marginTop: 4 }}>{latestMessage}</p>
+                      ) : (
+                        displayedVideos.map(({ description: _desc, ...v }) => (
+                          <VideoCard key={v.videoId} v={v} />
+                        ))
+                      )}
                     </div>
                     {(latestPrevToken || latestNextToken) && (
                       <div className="row" style={{ gap: 12, marginTop: 12 }}>
@@ -2489,6 +2496,7 @@ function PlaylistTab({ active = true }) {
   const [nextPageToken, setNextPageToken] = useState(null);
   const [hasMorePages, setHasMorePages] = useState(false);
   const [totalVideoCount, setTotalVideoCount] = useState(0);
+  const [playlistMessage, setPlaylistMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -2537,6 +2545,7 @@ function PlaylistTab({ active = true }) {
       setNextPageToken(result.nextPageToken || null);
       setHasMorePages(Boolean(result.nextPageToken));
       setTotalVideoCount(result.count ?? (result.videos || []).length);
+      setPlaylistMessage(result.message || "");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -2551,6 +2560,7 @@ function PlaylistTab({ active = true }) {
     setNextPageToken(null);
     setHasMorePages(false);
     setTotalVideoCount(0);
+    setPlaylistMessage("");
     setTitleSearch("");
     setStartDate("");
     setEndDate("");
@@ -2583,6 +2593,7 @@ function PlaylistTab({ active = true }) {
     setNextPageToken(null);
     setHasMorePages(false);
     setTotalVideoCount(0);
+    setPlaylistMessage("");
     setCategoryFilter(new Set(["all"]));
   };
 
@@ -2719,9 +2730,13 @@ function PlaylistTab({ active = true }) {
             )}
           </p>
           <div>
-            {displayedVideos.map(({ description: _desc, ...v }) => (
-              <VideoCard key={v.videoId} v={v} />
-            ))}
+            {displayedVideos.length === 0 && playlistMessage ? (
+              <p className="result-count" style={{ marginTop: 4 }}>{playlistMessage}</p>
+            ) : (
+              displayedVideos.map(({ description: _desc, ...v }) => (
+                <VideoCard key={v.videoId} v={v} />
+              ))
+            )}
             {hasMorePages && (
               <div style={{ marginTop: 12 }}>
                 <button
