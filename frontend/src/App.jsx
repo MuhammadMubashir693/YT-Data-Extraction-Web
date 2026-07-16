@@ -2058,13 +2058,6 @@ function CommentCard({ comment, children, parentCommentId }) {
   // Use passed parentCommentId, or comment.parentId, or the extracted one
   const displayParentId = parentCommentId || comment.parentId || extractedParentId;
 
-  // Deep link straight to this comment on YouTube (works for top-level
-  // comments and replies alike, since YouTube's `lc` param accepts either).
-  const commentPermalink =
-    comment.videoId && comment.commentId
-      ? `https://www.youtube.com/watch?v=${comment.videoId}&lc=${comment.commentId}`
-      : null;
-
   return (
     <>
       <div className="comment-header" style={{ justifyContent: "space-between" }}>
@@ -2091,24 +2084,8 @@ function CommentCard({ comment, children, parentCommentId }) {
                 comment.authorName
               )}
             </span>
-            <span>
-              <b>Published:</b>{" "}
-              {commentPermalink ? (
-                <a href={commentPermalink} target="_blank" rel="noreferrer">{comment.publishedAt}</a>
-              ) : (
-                comment.publishedAt
-              )}
-            </span>
-            {showUpdated && (
-              <span>
-                <b>Updated:</b>{" "}
-                {commentPermalink ? (
-                  <a href={commentPermalink} target="_blank" rel="noreferrer">{comment.updatedAt}</a>
-                ) : (
-                  comment.updatedAt
-                )}
-              </span>
-            )}
+            <span><b>Published:</b> {comment.publishedAt}</span>
+            {showUpdated && <span><b>Updated:</b> {comment.updatedAt}</span>}
             {comment.replyCount != null && <span><b>Replies:</b> {comment.replyCount}</span>}
             {comment.likeCount != null && <span><b>Likes:</b> {fmtCount(comment.likeCount)}</span>}
           </div>
@@ -2423,6 +2400,7 @@ function CommentsTab({ active = true }) {
                       }));
                       try {
                         const params = { parentId: thread.commentId };
+                        if (thread.videoId) params.videoId = thread.videoId;
                         if (pageState.nextPageToken) params.pageToken = pageState.nextPageToken;
                         const data = await apiGet("comment-replies", params);
                         setReplyPages((prev) => {
