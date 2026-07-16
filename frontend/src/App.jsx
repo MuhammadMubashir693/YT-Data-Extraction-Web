@@ -3,7 +3,7 @@ import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
 import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
-import { fmtCount } from "./../../backend/helpers.js";
+import { fmtCount } from "./format.js";
 import {
   addResource,
   deleteResource,

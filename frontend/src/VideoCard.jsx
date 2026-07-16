@@ -2,7 +2,7 @@
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
-import { fmtCount, fmtCountry } from "../../backend/helpers.js";
+import { fmtCount, fmtCountry } from "./format.js";
 import { getCategoryName } from "./categoryMap.js";
 import { getLanguageName } from "./languageMap.js";
 
