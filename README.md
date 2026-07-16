@@ -131,10 +131,10 @@ The backend exposes a JSON API under `/api`:
 - `POST /api/playlists` — add a saved playlist; JSON body: `{ name, id }`.
 - `PUT /api/playlists/:currentId` — update a saved playlist; JSON body: `{ name, id }`.
 - `DELETE /api/playlists/:id` — delete a saved playlist.
-- `GET /api/saved-comments` — list saved comments (MongoDB-backed).
-- `POST /api/saved-comments` — add a saved comment; JSON body: `{ name, id }`.
-- `PUT /api/saved-comments/:currentId` — update a saved comment; JSON body: `{ name, id }`.
-- `DELETE /api/saved-comments/:id` — delete a saved comment.
+- `GET /api/comments` — list saved comments (MongoDB-backed).
+- `POST /api/comments` — add a saved comment; JSON body: `{ name, id }`.
+- `PUT /api/comments/:currentId` — update a saved comment; JSON body: `{ name, id }`.
+- `DELETE /api/comments/:id` — delete a saved comment.
 - `GET /api/channel-videos?channelId=...&mode=keyword|date&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — fetch videos for a channel with optional keyword, date range, duration, and sort filters.
 - `GET /api/search-videos?keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&durationFilter=short|medium|long&sort=...` — general video search with the same filter options.
 - `GET /api/search-channels?keyword=...&maxResults=...` — search YouTube channels by name (channel description is not searched).

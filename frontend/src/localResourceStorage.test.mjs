@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addStoredChannel, deleteStoredChannel, getStoredChannels, updateStoredChannel } from './channelStorage.js';
+import { addResource, deleteResource, getResource, updateResource } from './localResourceStorage.js';
 
 test('stores and updates channels locally', () => {
   const storageKey = 'yt-data-test-channels';
@@ -11,15 +11,15 @@ test('stores and updates channels locally', () => {
     removeItem(key) { delete this.store[key]; },
   };
 
-  const initial = getStoredChannels(storageKey);
+  const initial = getResource(storageKey);
   assert.deepEqual(initial, []);
 
-  const created = addStoredChannel({ name: 'Example', id: 'UC123' }, storageKey);
+  const created = addResource({ name: 'Example', id: 'UC123' }, storageKey);
   assert.deepEqual(created, [{ name: 'Example', id: 'UC123' }]);
 
-  const updated = updateStoredChannel('UC123', { name: 'Updated', id: 'UC999' }, storageKey);
+  const updated = updateResource('UC123', { name: 'Updated', id: 'UC999' }, storageKey);
   assert.deepEqual(updated, [{ name: 'Updated', id: 'UC999' }]);
 
-  const deleted = deleteStoredChannel('UC999', storageKey);
+  const deleted = deleteResource('UC999', storageKey);
   assert.deepEqual(deleted, []);
 });

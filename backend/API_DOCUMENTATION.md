@@ -399,9 +399,9 @@ Notes:
 
 ## Saved Comments (MongoDB)
 
-Same shape and behavior as [Saved Channels](#saved-channels-mongodb), scoped to comments. Exposed under `/api/saved-comments` rather than `/api/comments`, since that path is already used by the [Comment Threads and Replies](#comment-threads-and-replies) lookup endpoint.
+Same shape and behavior as [Saved Channels](#saved-channels-mongodb), scoped to comments. Exposed under `/api/comments` rather than `/api/comments`, since that path is already used by the [Comment Threads and Replies](#comment-threads-and-replies) lookup endpoint.
 
-### GET `/api/saved-comments`
+### GET `/api/comments`
 
 Description: Return all saved comments from MongoDB.
 
@@ -412,7 +412,7 @@ Response:
   - `name`: comment display name
   - `id`: comment ID
 
-### POST `/api/saved-comments`
+### POST `/api/comments`
 
 Description: Add a saved comment.
 
@@ -431,7 +431,7 @@ Errors:
 - `400 Bad Request`: missing or empty `name`/`id`.
 - `409 Conflict`: comment with the same `id` already exists.
 
-### PUT `/api/saved-comments/:currentId`
+### PUT `/api/comments/:currentId`
 
 Description: Update a saved comment record.
 
@@ -455,7 +455,7 @@ Errors:
 - `404 Not Found`: no comment with `currentId` exists.
 - `409 Conflict`: a different comment already uses the new `id`.
 
-### DELETE `/api/saved-comments/:id`
+### DELETE `/api/comments/:id`
 
 Description: Remove a saved comment.
 

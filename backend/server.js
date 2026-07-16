@@ -37,7 +37,13 @@ const MONGO_COLL_CHANNELS = process.env.MONGO_COLL_CHANNELS || "yt-channels";
 const MONGO_COLL_VIDEOS = process.env.MONGO_COLL_VIDEOS || "yt-videos";
 const MONGO_COLL_PLAYLISTS = process.env.MONGO_COLL_PLAYLISTS || "yt-playlists";
 const MONGO_COLL_COMMENTS = process.env.MONGO_COLL_COMMENTS || "yt-comments";
-const MONGO_URI = `mongodb://${encodeURIComponent(MONGO_USER)}:${encodeURIComponent(MONGO_PASS)}@${MONGO_HOST}:${MONGO_PORT}/?authSource=admin`;
+// Prefer a full connection string when provided (e.g. an Atlas `mongodb+srv://`
+// URI, which can't be reassembled from separate host/port/authSource parts).
+// Falls back to building a standard `mongodb://` URI from the parts above for
+// local/self-hosted Mongo, so local dev keeps working unchanged.
+const MONGO_URI =
+  process.env.MONGO_URI ||
+  `mongodb://${encodeURIComponent(MONGO_USER)}:${encodeURIComponent(MONGO_PASS)}@${MONGO_HOST}:${MONGO_PORT}/?authSource=admin`;
 
 const mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
 let channelCollection = null;

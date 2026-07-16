@@ -5,11 +5,11 @@ import LinkifiedText from "./LinkifiedText.jsx";
 import { useInfiniteScroll } from "./useInfiniteScroll.jsx";
 import { fmtCount } from "./../../backend/helpers.js";
 import {
-  addStoredChannel,
-  deleteStoredChannel,
-  getStoredChannels,
-  updateStoredChannel,
-} from "./channelStorage.js";
+  addResource,
+  deleteResource,
+  getResource,
+  updateResource,
+} from "./localResourceStorage.js";
 
 // ── Client-side video ID parser (mirrors helpers.js) ─────────────────────
 
@@ -494,7 +494,7 @@ function useSavedItems(apiPath, storageKey) {
         const data = await apiGet(apiPath);
         if (!cancelled) setItems(Array.isArray(data) ? data : []);
       } catch {
-        if (!cancelled) setItems(getStoredChannels(storageKey));
+        if (!cancelled) setItems(getResource(storageKey));
       } finally {
         if (!cancelled) setLoaded(true);
       }
@@ -508,7 +508,7 @@ function useSavedItems(apiPath, storageKey) {
   useSavedItemsChangedListener(apiPath, () => {
     apiGet(apiPath)
       .then((data) => setItems(Array.isArray(data) ? data : []))
-      .catch(() => setItems(getStoredChannels(storageKey)));
+      .catch(() => setItems(getResource(storageKey)));
   });
 
   return { items, loaded };
@@ -1348,7 +1348,7 @@ function ManagedResourceTab({
         setId("");
       }
     } catch {
-      const fallback = getStoredChannels(storageKey);
+      const fallback = getResource(storageKey);
       setItems(fallback);
       setItemsLoaded(true);
       if (fallback.length && !fallback.some((c) => c.id === selectedId)) {
@@ -1407,7 +1407,7 @@ function ManagedResourceTab({
       }
       try {
         const fallbackItem = { name: name.trim(), id: id.trim() };
-        const fallback = addStoredChannel(fallbackItem, storageKey);
+        const fallback = addResource(fallbackItem, storageKey);
         setItems(fallback);
         setSelectedId(fallbackItem.id);
         setName(fallbackItem.name);
@@ -1446,7 +1446,7 @@ function ManagedResourceTab({
         return;
       }
       try {
-        const updated = updateStoredChannel(selectedId, { name: name.trim(), id: id.trim() }, storageKey);
+        const updated = updateResource(selectedId, { name: name.trim(), id: id.trim() }, storageKey);
         setItems(updated);
         setSelectedId(id.trim());
         setName(name.trim());
@@ -1482,7 +1482,7 @@ function ManagedResourceTab({
         setLoading(false);
         return;
       }
-      const updated = deleteStoredChannel(selectedId, storageKey);
+      const updated = deleteResource(selectedId, storageKey);
       setItems(updated);
       setSelectedId("");
       setName("");
@@ -1645,7 +1645,7 @@ function ChannelTab({ active = true }) {
       setChannels(Array.isArray(data) ? data : []);
     } catch {
       // Fallback to local storage if backend is unavailable
-      const local = getStoredChannels();
+      const local = getResource();
       setChannels(local);
     } finally {
       setChannelsLoaded(true);
@@ -2655,33 +2655,41 @@ function PlaylistTab({ active = true }) {
           {playlistInfo && Object.keys(playlistInfo).length > 0 && (
             <div className="panel" style={{ marginTop: 16, background: "var(--panel-2)" }}>
               <h3>Playlist Details</h3>
-              <div style={{ display: "flex", gap: 14 }}>
+              <div className="video-card" style={{ border: "none", padding: 0 }}>
                 {playlistInfo.thumbnail && (
                   <ImageWithFallback
                     src={playlistInfo.thumbnail}
                     alt={playlistInfo.title}
-                    style={{ width: 320, height: 180, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+                    loading="lazy"
                   />
                 )}
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="body">
+                  <p className="title">
+                    <a
+                      href={`https://www.youtube.com/playlist?list=${playlistInfo.playlistId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {playlistInfo.title}
+                    </a>
+                  </p>
                   <div className="meta-grid">
                     <span><b>Playlist ID:</b> {playlistInfo.playlistId}</span>
-                    <span><b>Title:</b> {playlistInfo.title}</span>
                     <span><b>Channel ID:</b> {playlistInfo.channelId}</span>
                     <span><b>Channel Name:</b> {playlistInfo.channelTitle}</span>
                     <span><b>Published At:</b> {playlistInfo.publishedAt}</span>
                   </div>
+                  {playlistInfo.description && (
+                    <div className="description-wrapper" style={{ marginTop: 8 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", marginBottom: 4 }}>
+                        Description:
+                      </div>
+                      <div className="description" style={{ maxHeight: "none", overflow: "visible" }}>
+                        <LinkifiedText text={playlistInfo.description} />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <span style={{ fontsize: 14, fontWeight: 600, color: "var(--text)" }}>Description: </span>
-                {playlistInfo.description ? (
-                  <div className="description" style={{ marginTop: 4, maxHeight: "none", overflow: "visible" }}>
-                    <LinkifiedText text={playlistInfo.description} />
-                  </div>
-                ) : (
-                  <span style={{ fontsize: 14, color: "var(--muted)" }}>N/A</span>
-                )}
               </div>
             </div>
           )}
