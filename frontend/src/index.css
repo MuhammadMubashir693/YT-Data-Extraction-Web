@@ -476,3 +476,111 @@ button.secondary:hover {
 .category-btn.active:hover {
   opacity: 0.9;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Responsive / mobile layout
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .app-shell {
+    display: block;
+  }
+
+  /* Sidebar becomes a horizontal scrollable top bar instead of a
+     fixed left column */
+  .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .sidebar-header {
+    padding: 14px 16px;
+    border-bottom: none;
+    flex-shrink: 0;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    flex: none;
+    padding: 8px 10px;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    white-space: nowrap;
+    width: auto;
+    flex-shrink: 0;
+  }
+
+  .app-main {
+    margin-left: 0;
+    padding: 16px 14px 40px;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .row > * {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  /* Video cards stack instead of sitting side by side */
+  .video-card {
+    flex-direction: column;
+  }
+
+  .video-card img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+
+  .channel-avatar-square {
+    width: 140px;
+    height: 140px;
+  }
+
+  .channel-card img.avatar {
+    width: 72px;
+    height: 72px;
+  }
+
+  .comment-avatar {
+    width: 56px;
+    height: 56px;
+  }
+
+  .comment-reply {
+    margin-left: 12px;
+  }
+
+  .comment-header,
+  .comment-author-row {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 420px) {
+  .sidebar-header h1 {
+    font-size: 16px;
+  }
+
+  .video-card .title {
+    font-size: 16px;
+  }
+
+  button.primary,
+  button.secondary {
+    padding: 10px 14px;
+    width: 100%;
+  }
+}
