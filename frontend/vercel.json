@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://yt-data-extraction-web.onrender.com/api/$1"
+    }
+  ]
+}
