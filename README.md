@@ -183,10 +183,10 @@ docker compose down -v          # also remove any volumes
 How the pieces fit together:
 
 - `backend/Dockerfile` — installs backend dependencies and runs
-  `node server.js` inside a `node:20-alpine` image.
+  `node server.js` inside a `node:lts` image.
 - `frontend/Dockerfile` — stage 1 builds the static app with
   `npm run build`; stage 2 copies just the built `dist/` output into an
-  `nginx:1.27-alpine` image, so the final image doesn't ship the Node
+  `nginx:stable` image, so the final image doesn't ship the Node
   toolchain at all.
 - `frontend/nginx.conf` — serves the built frontend and proxies `/api/*`
   and `/api-docs` requests to the `backend` container by its Docker
