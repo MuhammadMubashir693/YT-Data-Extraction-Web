@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: ./backend
+    container_name: yt-data-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "5000:5000" # exposed directly too, handy for hitting /api-docs or testing with curl
+
+  frontend:
+    build: ./frontend
+    container_name: yt-data-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80" # app will be at http://localhost:8080
