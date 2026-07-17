@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import VideoCard from "./VideoCard.jsx";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";
@@ -87,9 +87,6 @@ function sortVideosClient(videos, sort) {
         const bScore = bViews ? bLikes / bViews : bLikes;
         return (aScore - bScore) * direction;
       });
-    case "likes-asc":
-    case "likes-desc":
-      return items.sort((a, b) => (safeNum(a.likes) - safeNum(b.likes)) * direction);
     case "title-asc":
     case "title-desc":
       return items.sort((a, b) =>
@@ -223,11 +220,11 @@ function ProgressiveList({ items, pageSize = PAGE_SIZE, resetKey, renderItem, lo
 const TABS = [
   { id: "video", label: "Video Details" },
   { id: "player", label: "Video Player" },
+  { id: "channelSearch", label: "Search" },
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
   { id: "comments", label: "Comment Threads" },
   { id: "playlist", label: "Playlist Details" },
-  { id: "search", label: "Search" },
   { id: "manageChannels", label: "Manage Channels" },
   { id: "manageVideos", label: "Manage Videos" },
   { id: "managePlaylists", label: "Manage Playlists" },
@@ -734,7 +731,7 @@ function PlaylistResultCard({ pl }) {
   );
 }
 
-function SearchTab() {
+function ChannelSearchTab({ active = true }) {
   // Category: 'video' | 'channel' | 'playlist'
   const [category, setCategory] = useState("video");
 
@@ -760,16 +757,12 @@ function SearchTab() {
 
   // Channel search state
   const [chKeyword, setChKeyword] = useState("");
-  const [chSortOption, setChSortOption] = useState("relevance");
-  const [countryFilter, setCountryFilter] = useState(new Set());
-  const [availableCountries, setAvailableCountries] = useState([]);
 
   // Playlist search state
   const [plKeyword, setPlKeyword] = useState("");
   const [plUsePerField, setPlUsePerField] = useState(false);
   const [plKeywordTitle, setPlKeywordTitle] = useState("");
   const [plKeywordChannel, setPlKeywordChannel] = useState("");
-  const [plSortOption, setPlSortOption] = useState("relevance");
 
   // Shared max results
   const [maxResults, setMaxResults] = useState("50");
@@ -812,16 +805,6 @@ function SearchTab() {
     return { all, standard, shorts, live };
   }, [sortedVideos]);
 
-  // Extract available countries from channel results
-  useEffect(() => {
-    if (channelResults && channelResults.length > 0) {
-      const countries = [...new Set(channelResults.map(ch => ch.country).filter(Boolean))].sort();
-      setAvailableCountries(countries);
-      // Reset country filter when new results come in
-      setCountryFilter(new Set());
-    }
-  }, [channelResults]);
-
   const refreshChannels = async () => {
     try {
       const data = await apiGet("channels");
@@ -838,9 +821,13 @@ function SearchTab() {
     }
   };
 
+  const hasFetchedChannelsRef = useRef(false);
   useEffect(() => {
-    refreshChannels();
-  }, []);
+    if (active && !hasFetchedChannelsRef.current) {
+      hasFetchedChannelsRef.current = true;
+      refreshChannels();
+    }
+  }, [active]);
 
   useSavedItemsChangedListener("channels", refreshChannels);
 
@@ -871,14 +858,10 @@ function SearchTab() {
     setUseDuration(false);
     setDurationFilter("medium");
     setChKeyword("");
-    setChSortOption("relevance");
-    setCountryFilter(new Set());
-    setAvailableCountries([]);
     setPlKeyword("");
     setPlUsePerField(false);
     setPlKeywordTitle("");
     setPlKeywordChannel("");
-    setPlSortOption("relevance");
     setMaxResults("50");
     setLiveFilter(false);
     setCategoryFilter(new Set(["all"]));
@@ -938,8 +921,6 @@ function SearchTab() {
         setChannelResults(data.channels);
         setChannelNextToken(data.nextPageToken || null);
         setChannelPrevToken(data.prevPageToken || null);
-        setChSortOption("relevance");
-        setCountryFilter(new Set());
       } else {
         const hasPerField = plUsePerField && (plKeywordTitle.trim() || plKeywordChannel.trim());
         if (!plUsePerField && !plKeyword.trim()) throw new Error("Keyword is required for playlist search");
@@ -953,7 +934,6 @@ function SearchTab() {
         }
         const data = await apiGet("search-playlists", params);
         setPlaylistResults(data.playlists);
-        setPlSortOption("relevance");
       }
     } catch (err) {
       setError(err.message);
@@ -986,7 +966,7 @@ function SearchTab() {
 
   // Validate max results
   const maxNum = Number(maxResults);
-  const maxResultsInvalid = !maxResults || maxNum < 1 || maxNum > 500;
+  const maxResultsInvalid = !maxResults || maxNum < 50 || maxNum > 500;
 
   const isDisabled = (() => {
     if (loading) return true;
@@ -1056,8 +1036,6 @@ function SearchTab() {
           <option value="viewCount-asc">View count (lowest first)</option>
           <option value="rating-desc">Rating (highest first)</option>
           <option value="rating-asc">Rating (lowest first)</option>
-          <option value="likes-desc">Likes (highest first)</option>
-          <option value="likes-asc">Likes (lowest first)</option>
           <option value="title-asc">Title (A → Z)</option>
           <option value="title-desc">Title (Z → A)</option>
           <option value="duration-desc">Duration (longest first)</option>
@@ -1229,32 +1207,31 @@ function SearchTab() {
         <div className="field">
           <label>Max results</label>
           <select
-            value={["1", "50", "250", "500"].includes(maxResults) ? maxResults : "custom"}
+            value={["50", "250", "500"].includes(maxResults) ? maxResults : "custom"}
             onChange={(e) => {
               if (e.target.value !== "custom") setMaxResults(e.target.value);
               else setMaxResults("");
             }}
           >
-            <option value="1">1</option>
             <option value="50">50</option>
             <option value="250">250</option>
             <option value="500">500</option>
             <option value="custom">Custom...</option>
           </select>
-          {!["1", "50", "250", "500"].includes(maxResults) && (
+          {!["50", "250", "500"].includes(maxResults) && (
             <div style={{ marginTop: 6 }}>
               <input
                 type="number"
-                min={1}
+                min={50}
                 max={500}
-                placeholder="Enter a value between 1 and 500"
+                placeholder="Enter a value between 50 and 500"
                 value={maxResults}
                 onChange={(e) => setMaxResults(e.target.value)}
                 style={{ width: "100%" }}
               />
-              {maxResults !== "" && (Number(maxResults) < 1 || Number(maxResults) > 500) && (
+              {maxResults !== "" && (Number(maxResults) < 50 || Number(maxResults) > 500) && (
                 <div className="message-box error" style={{ marginTop: 6 }}>
-                  Max results must be between 1 and 500 inclusive.
+                  Max results must be between 50 and 500 inclusive.
                 </div>
               )}
             </div>
@@ -1299,93 +1276,10 @@ function SearchTab() {
       {channelResults && (
         <>
           <p className="result-count">Result count: {fmtCount(channelResults.length)}</p>
-          
-          {/* Channel sorting */}
-          <div className="field" style={{ maxWidth: 260 }}>
-            <label>Sort channels by</label>
-            <select value={chSortOption} onChange={(e) => setChSortOption(e.target.value)}>
-              <option value="relevance">Relevance</option>
-              <option value="title-asc">Title (A → Z)</option>
-              <option value="title-desc">Title (Z → A)</option>
-              <option value="subscribers-desc">Subscribers (highest first)</option>
-              <option value="subscribers-asc">Subscribers (lowest first)</option>
-              <option value="videoCount-desc">Video count (highest first)</option>
-              <option value="videoCount-asc">Video count (lowest first)</option>
-              <option value="viewCount-desc">View count (highest first)</option>
-              <option value="viewCount-asc">View count (lowest first)</option>
-            </select>
-          </div>
-
-          {/* Country filter */}
-          {availableCountries.length > 0 && (
-            <div className="row" style={{ gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                className={`category-btn ${countryFilter.size === 0 ? "active" : ""}`}
-                onClick={() => setCountryFilter(new Set())}
-              >
-                All Countries ({channelResults.length})
-              </button>
-              {availableCountries.map((country) => (
-                <button
-                  key={country}
-                  type="button"
-                  className={`category-btn ${countryFilter.has(country) ? "active" : ""}`}
-                  onClick={() => {
-                    const next = new Set(countryFilter);
-                    if (next.has(country)) next.delete(country);
-                    else next.add(country);
-                    setCountryFilter(next);
-                  }}
-                >
-                  {country} ({channelResults.filter(ch => ch.country === country).length})
-                </button>
-              ))}
-            </div>
-          )}
-
           <ExportBar data={channelResults} filenameBase="channel-search-results" />
-          {(() => {
-            // Sort channels
-            let sortedChannels = [...channelResults];
-            switch (chSortOption) {
-              case "title-asc":
-                sortedChannels.sort((a, b) => a.title.localeCompare(b.title));
-                break;
-              case "title-desc":
-                sortedChannels.sort((a, b) => b.title.localeCompare(a.title));
-                break;
-              case "subscribers-desc":
-                sortedChannels.sort((a, b) => (Number(b.subscribers) || 0) - (Number(a.subscribers) || 0));
-                break;
-              case "subscribers-asc":
-                sortedChannels.sort((a, b) => (Number(a.subscribers) || 0) - (Number(b.subscribers) || 0));
-                break;
-              case "videoCount-desc":
-                sortedChannels.sort((a, b) => (Number(b.videoCount) || 0) - (Number(a.videoCount) || 0));
-                break;
-              case "videoCount-asc":
-                sortedChannels.sort((a, b) => (Number(a.videoCount) || 0) - (Number(b.videoCount) || 0));
-                break;
-              case "viewCount-desc":
-                sortedChannels.sort((a, b) => (Number(b.viewCount) || 0) - (Number(a.viewCount) || 0));
-                break;
-              case "viewCount-asc":
-                sortedChannels.sort((a, b) => (Number(a.viewCount) || 0) - (Number(b.viewCount) || 0));
-                break;
-              default:
-                break;
-            }
-            
-            // Filter by country
-            if (countryFilter.size > 0) {
-              sortedChannels = sortedChannels.filter(ch => countryFilter.has(ch.country));
-            }
-            
-            return sortedChannels.map((ch) => (
-              <ChannelResultCard key={ch.channelId} ch={ch} />
-            ));
-          })()}
+          {channelResults.map((ch) => (
+            <ChannelResultCard key={ch.channelId} ch={ch} />
+          ))}
           {(channelPrevToken || channelNextToken) && (
             <div className="row" style={{ gap: 12, marginTop: 12 }}>
               <button
@@ -1414,42 +1308,10 @@ function SearchTab() {
       {playlistResults && (
         <>
           <p className="result-count">Result count: {fmtCount(playlistResults.length)}</p>
-          
-          {/* Playlist sorting */}
-          <div className="field" style={{ maxWidth: 260 }}>
-            <label>Sort playlists by</label>
-            <select value={plSortOption} onChange={(e) => setPlSortOption(e.target.value)}>
-              <option value="relevance">Relevance</option>
-              <option value="title-asc">Title (A → Z)</option>
-              <option value="title-desc">Title (Z → A)</option>
-              <option value="videoCount-desc">Video count (highest first)</option>
-              <option value="videoCount-asc">Video count (lowest first)</option>
-            </select>
-          </div>
-
           <ExportBar data={playlistResults} filenameBase="playlist-search-results" />
-          {(() => {
-            let sortedPlaylists = [...playlistResults];
-            switch (plSortOption) {
-              case "title-asc":
-                sortedPlaylists.sort((a, b) => a.title.localeCompare(b.title));
-                break;
-              case "title-desc":
-                sortedPlaylists.sort((a, b) => b.title.localeCompare(a.title));
-                break;
-              case "videoCount-desc":
-                sortedPlaylists.sort((a, b) => (Number(b.videoCount) || 0) - (Number(a.videoCount) || 0));
-                break;
-              case "videoCount-asc":
-                sortedPlaylists.sort((a, b) => (Number(a.videoCount) || 0) - (Number(b.videoCount) || 0));
-                break;
-              default:
-                break;
-            }
-            return sortedPlaylists.map((pl) => (
-              <PlaylistResultCard key={pl.playlistId} pl={pl} />
-            ));
-          })()}
+          {playlistResults.map((pl) => (
+            <PlaylistResultCard key={pl.playlistId} pl={pl} />
+          ))}
         </>
       )}
     </div>
@@ -1468,6 +1330,7 @@ function ManagedResourceTab({
   entityLabel, // e.g. "channel", "video", "playlist", "comment"
   idLabel, // e.g. "Channel ID", "Video ID"
   exportFilenameBase,
+  active = true,
 }) {
   const [items, setItems] = useState([]);
   const [itemsLoaded, setItemsLoaded] = useState(false);
@@ -1501,10 +1364,14 @@ function ManagedResourceTab({
     }
   };
 
+  const hasFetchedItemsRef = useRef(false);
   useEffect(() => {
-    refreshItems();
+    if (active && !hasFetchedItemsRef.current) {
+      hasFetchedItemsRef.current = true;
+      refreshItems();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [active]);
 
   const selectItem = (itemId) => {
     const item = items.find((c) => c.id === itemId);
@@ -1702,7 +1569,7 @@ function ManagedResourceTab({
   );
 }
 
-function ChannelManagerTab() {
+function ChannelManagerTab({ active = true }) {
   return (
     <ManagedResourceTab
       title="Manage Channels"
@@ -1711,11 +1578,12 @@ function ChannelManagerTab() {
       entityLabel="channel"
       idLabel="Channel ID"
       exportFilenameBase="saved-channels"
+      active={active}
     />
   );
 }
 
-function VideoManagerTab() {
+function VideoManagerTab({ active = true }) {
   return (
     <ManagedResourceTab
       title="Manage Videos"
@@ -1724,11 +1592,12 @@ function VideoManagerTab() {
       entityLabel="video"
       idLabel="Video ID"
       exportFilenameBase="saved-videos"
+      active={active}
     />
   );
 }
 
-function PlaylistManagerTab() {
+function PlaylistManagerTab({ active = true }) {
   return (
     <ManagedResourceTab
       title="Manage Playlists"
@@ -1737,11 +1606,12 @@ function PlaylistManagerTab() {
       entityLabel="playlist"
       idLabel="Playlist ID"
       exportFilenameBase="saved-playlists"
+      active={active}
     />
   );
 }
 
-function CommentManagerTab() {
+function CommentManagerTab({ active = true }) {
   return (
     <ManagedResourceTab
       title="Manage Comments"
@@ -1750,6 +1620,7 @@ function CommentManagerTab() {
       entityLabel="comment"
       idLabel="Comment ID"
       exportFilenameBase="saved-comments"
+      active={active}
     />
   );
 }
@@ -1795,9 +1666,13 @@ function ChannelTab({ active = true }) {
     }
   };
 
+  const hasFetchedChannelsRef = useRef(false);
   useEffect(() => {
-    loadSavedChannels();
-  }, []);
+    if (active && !hasFetchedChannelsRef.current) {
+      hasFetchedChannelsRef.current = true;
+      loadSavedChannels();
+    }
+  }, [active]);
 
   useSavedItemsChangedListener("channels", loadSavedChannels);
 
@@ -2769,8 +2644,6 @@ function PlaylistTab({ active = true }) {
             <option value="viewCount-asc">View count (lowest first)</option>
             <option value="rating-desc">Rating (highest first)</option>
             <option value="rating-asc">Rating (lowest first)</option>
-            <option value="likes-desc">Likes (highest first)</option>
-            <option value="likes-asc">Likes (lowest first)</option>
             <option value="duration-desc">Duration (longest first)</option>
             <option value="duration-asc">Duration (shortest first)</option>
           </select>
@@ -3089,15 +2962,15 @@ export default function App() {
 
           <div style={{ display: tab === "video" ? "block" : "none" }}><VideoTab /></div>
           <div style={{ display: tab === "player" ? "block" : "none" }}><VideoPlayerTab /></div>
+          <div style={{ display: tab === "channelSearch" ? "block" : "none" }}><ChannelSearchTab active={tab === "channelSearch"} /></div>
           <div style={{ display: tab === "channel" ? "block" : "none" }}><ChannelTab active={tab === "channel"} /></div>
           <div style={{ display: tab === "comment" ? "block" : "none" }}><CommentTab /></div>
           <div style={{ display: tab === "comments" ? "block" : "none" }}><CommentsTab active={tab === "comments"} /></div>
           <div style={{ display: tab === "playlist" ? "block" : "none" }}><PlaylistTab active={tab === "playlist"} /></div>
-          <div style={{ display: tab === "search" ? "block" : "none" }}><SearchTab /></div>
-          <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>
-          <div style={{ display: tab === "manageVideos" ? "block" : "none" }}><VideoManagerTab /></div>
-          <div style={{ display: tab === "managePlaylists" ? "block" : "none" }}><PlaylistManagerTab /></div>
-          <div style={{ display: tab === "manageComments" ? "block" : "none" }}><CommentManagerTab /></div>
+          <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab active={tab === "manageChannels"} /></div>
+          <div style={{ display: tab === "manageVideos" ? "block" : "none" }}><VideoManagerTab active={tab === "manageVideos"} /></div>
+          <div style={{ display: tab === "managePlaylists" ? "block" : "none" }}><PlaylistManagerTab active={tab === "managePlaylists"} /></div>
+          <div style={{ display: tab === "manageComments" ? "block" : "none" }}><CommentManagerTab active={tab === "manageComments"} /></div>
         </div>
       </main>
     </div>
