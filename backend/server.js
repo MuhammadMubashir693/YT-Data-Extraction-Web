@@ -395,6 +395,11 @@ function sortVideos(items, sort) {
         const bScore = bViews ? bLike / bViews : bLike;
         return (aScore - bScore) * direction;
       });
+    case "likes-asc":
+    case "likes-desc":
+      return items.sort((a, b) =>
+        (Number(a.statistics?.likeCount || 0) - Number(b.statistics?.likeCount || 0)) * direction
+      );
     case "title-asc":
     case "title-desc":
       return items.sort((a, b) =>
