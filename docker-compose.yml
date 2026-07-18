@@ -1,7 +1,7 @@
 services:
   backend:
     build: ./backend
-    container_name: yt-data-backend
+    container_name: yt-pool-backend
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -10,7 +10,7 @@ services:
 
   frontend:
     build: ./frontend
-    container_name: yt-data-frontend
+    container_name: yt-pool-frontend
     restart: unless-stopped
     depends_on:
       - backend
