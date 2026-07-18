@@ -395,6 +395,11 @@ function sortVideos(items, sort) {
         const bScore = bViews ? bLike / bViews : bLike;
         return (aScore - bScore) * direction;
       });
+    case "likes-asc":
+    case "likes-desc":
+      return items.sort((a, b) =>
+        (Number(a.statistics?.likeCount || 0) - Number(b.statistics?.likeCount || 0)) * direction
+      );
     case "title-asc":
     case "title-desc":
       return items.sort((a, b) =>
@@ -1155,15 +1160,9 @@ app.get("/api/channel-videos", async (req, res) => {
     });
     let fullItems = channelVideosCache.get(cvKey);
     if (!fullItems) {
-      // For the YouTube search API q= param, use the combined keyword if given,
-      // otherwise the first available per-field keyword (title, then
-      // description, then channel) — an empty q= here would return an
-      // essentially random page of the channel's newest uploads with no
-      // relevance to what was actually searched, which the per-field filter
-      // below would then almost never match. The real, precise per-field
-      // filtering still happens server-side after fetching full details;
-      // this is just choosing the best available candidate pool to filter.
-      const apiKeyword = keyword || keywordTitle || keywordDescription || keywordChannel || "";
+      // For the YouTube search API q= param, use the combined keyword or the title keyword as the
+      // primary signal (the real filtering is done server-side after fetching full details)
+      const apiKeyword = keyword || keywordTitle || "";
 
       const params = {
         part: "snippet",
@@ -2182,11 +2181,8 @@ app.get("/api/search-videos", async (req, res) => {
     });
     let fullItems = searchVideosCache.get(svKey);
     if (!fullItems) {
-      // Use the combined keyword if given, otherwise the first available
-      // per-field keyword (title, then description, then channel) — see
-      // the comment in /api/channel-videos for why an empty q= here would
-      // silently produce 0 results for description/channel-only searches.
-      const apiKeyword = keyword || keywordTitle || keywordDescription || keywordChannel || "";
+      // Use the combined keyword or title keyword for the YouTube search API q= param
+      const apiKeyword = keyword || keywordTitle || "";
 
       const params = {
         part: "snippet",
@@ -2448,11 +2444,7 @@ app.get("/api/search-playlists", async (req, res) => {
 
     const limit = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 500);
 
-    // Use the combined keyword if given, otherwise whichever per-field
-    // keyword is actually filled in — see the comment in /api/channel-videos
-    // for why an empty q= here would silently produce 0 results for a
-    // channel-name-only search.
-    const apiKeyword = keyword || keywordTitle || keywordChannel || "";
+    const apiKeyword = keyword || keywordTitle || "";
 
     // Cache the filtered result set keyed on the params that determine it —
     // repeat searches (or minor UI re-renders triggering the same query)
@@ -2563,29 +2555,6 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, apiKeySet: !!API_KEY });
 });
 
-const server = app.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`YT Data backend running on http://localhost:${PORT}`);
 });
-
-// Docker (and most process managers) send SIGTERM on `stop`/`down` and wait
-// up to a grace period (10s by default) for the process to exit on its own
-// before force-killing it with SIGKILL. Without this handler, the open
-// HTTP server + MongoDB connection pool keep the event loop alive past the
-// signal, so the container just sits there until Docker gives up and kills
-// it — which is exactly that 10s delay. Closing both explicitly lets the
-// process exit immediately instead.
-function shutdown(signal) {
-  console.log(`${signal} received, shutting down...`);
-  server.close(() => {
-    mongoClient
-      .close()
-      .catch(() => {})
-      .finally(() => process.exit(0));
-  });
-  // Safety net: force-exit if close() hangs for some reason, rather than
-  // relying on Docker's own grace period timeout.
-  setTimeout(() => process.exit(1), 5000).unref();
-}
-
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
