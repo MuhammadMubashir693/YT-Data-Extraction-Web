@@ -52,11 +52,16 @@ export async function parseChannelId(text, ytFetch) {
         return await resolveHandle(handle, ytFetch);
       }
 
-      // Handle bare handle like /PoojaDutt (without @ or c/ prefix)
-      // YouTube supports these URLs but they're ambiguous with video IDs
+      // Handle bare handle like /PoojaDutt (without @ or c/ prefix).
+      // YouTube supports these URLs. Note: this can be exactly 11
+      // characters long, the same length as a video ID (e.g. the real
+      // handle "AmanManazir") — that's not actually ambiguous in
+      // practice, since real YouTube video URLs never use a bare path
+      // like this (always /watch?v=, youtu.be/, /shorts/, etc., which
+      // are handled separately by parseVideoId), so there's no need to
+      // exclude 11-char paths here.
       m = path.match(/^\/([^/]+)$/);
-      if (m && !/^[A-Za-z0-9_-]{11}$/.test(m[1])) {
-        // It's not a video ID, treat it as a handle
+      if (m) {
         return await resolveHandle(m[1], ytFetch);
       }
     }
