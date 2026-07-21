@@ -2157,44 +2157,53 @@ app.get("/api/search-videos", async (req, res) => {
       keywordChannel,
       startDate,
       endDate,
-      durationFilter, // 'short' | 'medium' | 'long'
-      matchMode,      // 'every' | 'some'
+      durationFilter,
+      matchMode,
     } = req.query;
 
-    // Determine mode
     const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
       (k) => k && k.trim()
     );
 
-    // At least one of keyword, date range, or duration filter must be provided
+    // Validate at least one filter is provided
     if (!keyword && !hasPerField && !startDate && !endDate && !durationFilter) {
       return res.status(400).json({ error: "Provide a keyword, date range, or duration type" });
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
 
-    // Cache the filtered-but-unsorted result set keyed on every param except
-    // `sort` — re-sorting an already-fetched search is instant this way.
+    // Build cache key from ALL API-affecting params (excluding sort)
     const svKey = cacheKey({
-      keyword, keywordTitle, keywordDescription, keywordChannel,
-      startDate, endDate, durationFilter, matchMode, limit,
+      keyword: keyword || "",
+      keywordTitle: keywordTitle || "",
+      keywordDescription: keywordDescription || "",
+      keywordChannel: keywordChannel || "",
+      startDate: startDate || "",
+      endDate: endDate || "",
+      durationFilter: durationFilter || "",
+      matchMode: matchMode || "every",
+      limit,
     });
+
     let fullItems = searchVideosCache.get(svKey);
     if (!fullItems) {
-      // Use the combined keyword or title keyword for the YouTube search API q= param
-      const apiKeyword = keyword || keywordTitle || "";
-
+      // Build API search parameters
       const params = {
         part: "snippet",
         maxResults: 50,
         order: "date",
         type: "video",
       };
+
+      // Use the primary keyword for YouTube's q parameter
+      const apiKeyword = (keyword || keywordTitle || "").trim();
       if (apiKeyword) params.q = apiKeyword;
+      
       if (durationFilter) params.videoDuration = durationFilter;
       if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
       if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
 
+      // Fetch video IDs from search
       let videoIds = [];
       let nextPage;
       let pageNumber = 0;
@@ -2216,6 +2225,7 @@ app.get("/api/search-videos", async (req, res) => {
       if (!videoIds.length) {
         fullItems = [];
       } else {
+        // Fetch full video details
         fullItems = [];
         for (let i = 0; i < videoIds.length; i += 50) {
           const batch = videoIds.slice(i, i + 50);
@@ -2226,14 +2236,39 @@ app.get("/api/search-videos", async (req, res) => {
           fullItems.push(...(vresp.items || []));
         }
 
+        // Apply per-field keyword filtering on the server
         if (hasPerField) {
-          fullItems = fullItems.filter((v) =>
-            keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
-          );
-        } else if (keyword) {
-          fullItems = fullItems.filter((v) =>
-            keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
-          );
+          fullItems = fullItems.filter((v) => {
+            const snippet = v.snippet;
+            // Check each provided keyword against its field
+            if (keywordTitle?.trim() && !keywordMatches([snippet.title], keywordTitle)) {
+              return false;
+            }
+            if (keywordDescription?.trim() && !keywordMatches([snippet.description], keywordDescription)) {
+              return false;
+            }
+            if (keywordChannel?.trim() && !keywordMatches([snippet.channelTitle], keywordChannel)) {
+              return false;
+            }
+            return true;
+          });
+        } else if (keyword?.trim()) {
+          // Apply single keyword filtering with matchMode
+          const matchAll = matchMode !== "some";
+          fullItems = fullItems.filter((v) => {
+            const haystack = [
+              v.snippet.title,
+              v.snippet.description,
+              v.snippet.channelTitle
+            ].join(" ").toLowerCase();
+            
+            const tokens = keyword.trim().toLowerCase().split(/\s+/).filter(Boolean);
+            if (matchAll) {
+              return tokens.every(tok => haystack.includes(tok));
+            } else {
+              return tokens.some(tok => haystack.includes(tok));
+            }
+          });
         }
       }
 
@@ -2244,6 +2279,7 @@ app.get("/api/search-videos", async (req, res) => {
       return res.json({ videos: [], count: 0 });
     }
 
+    // Sort in-memory (doesn't affect cache)
     const sortedItems = fullItems.slice();
     const sort = String(req.query.sort || "relevance").toLowerCase();
     sortVideos(sortedItems, sort);

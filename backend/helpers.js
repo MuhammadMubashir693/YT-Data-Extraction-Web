@@ -228,19 +228,27 @@ export function fmtCount(value) {
 
 // ── Keyword matching ────────────────────────────────────────────────────
 
-export function keywordMatches(fields, keyword) {
+// In helpers.js
+export function keywordMatches(fields, keyword, matchMode = "every") {
   if (!keyword) return false;
   const hay = Array.isArray(fields) ? fields.join(" ") : String(fields || "");
   const hayLower = hay.toLowerCase();
-
   const tokens = String(keyword || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return false;
 
-  return tokens.every((tok) => {
-    const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
-    return pattern.test(hayLower);
-  });
+  if (matchMode === "some") {
+    return tokens.some((tok) => {
+      const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
+      return pattern.test(hayLower);
+    });
+  } else {
+    return tokens.every((tok) => {
+      const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
+      return pattern.test(hayLower);
+    });
+  }
 }
 
 // In helpers.js
