@@ -1154,9 +1154,17 @@ app.get("/api/channel-videos", async (req, res) => {
     // every param that affects it (i.e. everything except `sort`), so
     // changing just the sort dropdown re-sorts in memory instead of
     // re-running the whole search.
+    const cvSort = String(req.query.sort || "relevance").toLowerCase();
+    const cvApiOrder = apiOrderForSort(cvSort);
+
+    // `cvApiOrder` (derived from `sort`) is part of the cache key because it
+    // changes which videos the YouTube API returns, not just how we display
+    // them — e.g. sorting by view count needs its own fetch (order=viewCount)
+    // so the channel's top-viewed videos matching the query aren't skipped
+    // in favor of merely the most recent ones.
     const cvKey = cacheKey({
       channelId, mode, keyword, keywordTitle, keywordDescription, keywordChannel,
-      startDate, endDate, durationFilter, matchMode, limit,
+      startDate, endDate, durationFilter, matchMode, limit, cvApiOrder,
     });
     let fullItems = channelVideosCache.get(cvKey);
     if (!fullItems) {
@@ -1168,7 +1176,7 @@ app.get("/api/channel-videos", async (req, res) => {
         part: "snippet",
         channelId,
         maxResults: 50,
-        order: "date",
+        order: cvApiOrder,
         type: "video",
       };
       if (durationFilter) params.videoDuration = durationFilter;
@@ -1228,8 +1236,7 @@ app.get("/api/channel-videos", async (req, res) => {
     }
 
     const sortedItems = fullItems.slice();
-    const sort = String(req.query.sort || "relevance").toLowerCase();
-    sortVideos(sortedItems, sort);
+    sortVideos(sortedItems, cvSort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
     res.json({ videos, count: videos.length });
@@ -2148,6 +2155,22 @@ app.get("/api/playlist", async (req, res) => {
  *                 count: { type: integer }
  */
 
+// Maps a client-facing `sort` value to the YouTube Data API's `order`
+// parameter for the search.list call. Picking the matching API order (e.g.
+// "viewCount" when the caller wants videos sorted by view count) means the
+// most-viewed videos matching the query are the ones actually fetched
+// (subject to `limit`), instead of always fetching the most recent videos
+// and only then sorting in-memory — which could silently skip a video that
+// has huge view counts but wasn't among the newest results.
+function apiOrderForSort(sort) {
+  const s = String(sort || "").toLowerCase();
+  if (s.startsWith("viewcount")) return "viewCount";
+  if (s.startsWith("rating")) return "rating";
+  if (s.startsWith("title")) return "title";
+  if (s.startsWith("date")) return "date";
+  return "relevance";
+}
+
 app.get("/api/search-videos", async (req, res) => {
   try {
     const {
@@ -2165,14 +2188,31 @@ app.get("/api/search-videos", async (req, res) => {
       (k) => k && k.trim()
     );
 
+    // durationFilter can be a single value ("short") or a comma-separated
+    // list ("short,long") when the person selects multiple duration
+    // checkboxes. Normalize into a de-duplicated, sorted array so the cache
+    // key is stable regardless of the order the checkboxes were ticked in.
+    const durations = [...new Set(
+      String(durationFilter || "")
+        .split(",")
+        .map((d) => d.trim())
+        .filter((d) => ["short", "medium", "long"].includes(d))
+    )].sort();
+
     // Validate at least one filter is provided
-    if (!keyword && !hasPerField && !startDate && !endDate && !durationFilter) {
+    if (!keyword && !hasPerField && !startDate && !endDate && !durations.length) {
       return res.status(400).json({ error: "Provide a keyword, date range, or duration type" });
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
+    const sort = String(req.query.sort || "relevance").toLowerCase();
+    const apiOrder = apiOrderForSort(sort);
 
-    // Build cache key from ALL API-affecting params (excluding sort)
+    // Build cache key from ALL API-affecting params. `apiOrder` (derived
+    // from `sort`) is included because it changes which videos the YouTube
+    // API returns, not just how we display them — e.g. sorting by view
+    // count needs its own fetch (order=viewCount) so the top-viewed videos
+    // for the query aren't skipped in favor of merely the most recent ones.
     const svKey = cacheKey({
       keyword: keyword || "",
       keywordTitle: keywordTitle || "",
@@ -2180,45 +2220,62 @@ app.get("/api/search-videos", async (req, res) => {
       keywordChannel: keywordChannel || "",
       startDate: startDate || "",
       endDate: endDate || "",
-      durationFilter: durationFilter || "",
+      durationFilter: durations.join(","),
       matchMode: matchMode || "every",
       limit,
+      apiOrder,
     });
 
     let fullItems = searchVideosCache.get(svKey);
     if (!fullItems) {
-      // Build API search parameters
-      const params = {
+      // Build the API search parameters shared across every duration bucket
+      const baseParams = {
         part: "snippet",
         maxResults: 50,
-        order: "date",
+        order: apiOrder,
         type: "video",
       };
 
       // Use the primary keyword for YouTube's q parameter
       const apiKeyword = (keyword || keywordTitle || "").trim();
-      if (apiKeyword) params.q = apiKeyword;
-      
-      if (durationFilter) params.videoDuration = durationFilter;
-      if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
-      if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
+      if (apiKeyword) baseParams.q = apiKeyword;
 
-      // Fetch video IDs from search
+      if (startDate) baseParams.publishedAfter = `${startDate}T00:00:00Z`;
+      if (endDate) baseParams.publishedBefore = `${endDate}T23:59:59Z`;
+
+      // The YouTube search.list endpoint only accepts a single videoDuration
+      // value per call, so when more than one duration bucket is selected we
+      // issue one search per bucket and merge the results, deduping by video
+      // ID. Each bucket is allowed to fill up to the full `limit` on its own
+      // so results from a duration aren't starved by results from another.
+      const durationBuckets = durations.length ? durations : [undefined];
+
       let videoIds = [];
-      let nextPage;
-      let pageNumber = 0;
-      do {
-        const p = { ...params };
-        if (nextPage) p.pageToken = nextPage;
-        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-        for (const item of resp.items || []) {
-          const vidId = item.id?.videoId;
-          if (vidId) videoIds.push(vidId);
-        }
-        nextPage = resp.nextPageToken;
-        if (videoIds.length >= limit) break;
-        pageNumber += 1;
-      } while (nextPage);
+      const seenIds = new Set();
+      for (const bucket of durationBuckets) {
+        const params = { ...baseParams };
+        if (bucket) params.videoDuration = bucket;
+
+        let nextPage;
+        let pageNumber = 0;
+        let bucketCount = 0;
+        do {
+          const p = { ...params };
+          if (nextPage) p.pageToken = nextPage;
+          const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
+          for (const item of resp.items || []) {
+            const vidId = item.id?.videoId;
+            if (vidId && !seenIds.has(vidId)) {
+              seenIds.add(vidId);
+              videoIds.push(vidId);
+              bucketCount += 1;
+            }
+          }
+          nextPage = resp.nextPageToken;
+          if (bucketCount >= limit) break;
+          pageNumber += 1;
+        } while (nextPage);
+      }
 
       videoIds = videoIds.slice(0, limit);
 
@@ -2281,7 +2338,6 @@ app.get("/api/search-videos", async (req, res) => {
 
     // Sort in-memory (doesn't affect cache)
     const sortedItems = fullItems.slice();
-    const sort = String(req.query.sort || "relevance").toLowerCase();
     sortVideos(sortedItems, sort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
@@ -2454,6 +2510,10 @@ app.get("/api/search-channels", async (req, res) => {
  *         name: keywordChannel
  *         schema: { type: string }
  *       - in: query
+ *         name: channelId
+ *         description: Restrict results to playlists belonging to this channel
+ *         schema: { type: string }
+ *       - in: query
  *         name: maxResults
  *         schema: { type: integer, minimum: 1, maximum: 500 }
  *     responses:
@@ -2471,6 +2531,7 @@ app.get("/api/search-channels", async (req, res) => {
 app.get("/api/search-playlists", async (req, res) => {
   try {
     const { keyword, keywordTitle, keywordChannel, maxResults } = req.query;
+    const channelId = (req.query.channelId || "").trim();
 
     const hasPerField = [keywordTitle, keywordChannel].some((k) => k && k.trim());
 
@@ -2485,7 +2546,7 @@ app.get("/api/search-playlists", async (req, res) => {
     // Cache the filtered result set keyed on the params that determine it —
     // repeat searches (or minor UI re-renders triggering the same query)
     // skip the search + playlists.list batch calls entirely.
-    const spKey = cacheKey({ keyword, keywordTitle, keywordChannel, limit });
+    const spKey = cacheKey({ keyword, keywordTitle, keywordChannel, channelId, limit });
     let playlists = searchPlaylistsCache.get(spKey);
     if (!playlists) {
       let playlistIds = [];
@@ -2498,6 +2559,7 @@ app.get("/api/search-playlists", async (req, res) => {
           maxResults: 50,
           type: "playlist",
         };
+        if (channelId) p.channelId = channelId;
         if (nextPage) p.pageToken = nextPage;
         const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
         for (const item of resp.items || []) {

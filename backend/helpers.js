@@ -228,26 +228,39 @@ export function fmtCount(value) {
 
 // ── Keyword matching ────────────────────────────────────────────────────
 
-// In helpers.js
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'of', 'for', 'on', 'at', 'to', 'in', 'with',
+  'without', 'and', 'or', 'but', 'nor', 'yet', 'so', 'as', 'by'
+]);
+
 export function keywordMatches(fields, keyword, matchMode = "every") {
   if (!keyword) return false;
   const hay = Array.isArray(fields) ? fields.join(" ") : String(fields || "");
   const hayLower = hay.toLowerCase();
-  const tokens = String(keyword || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return false;
+
+  // Split into tokens, filter out stop words and very short words
+  let tokens = String(keyword || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
+  tokens = tokens.filter(token =>
+    token.length >= 3 && !STOP_WORDS.has(token)
+  );
+
+  if (!tokens.length) return true; // Only stop words - match everything
+
+  // Word-boundary match (with a trailing "es"/"s" allowance for simple
+  // plurals) instead of a raw substring check — a plain `.includes(tok)`
+  // would let "carol" match "carolina" or "carollo", which is how
+  // unrelated results with the token merely embedded in another word were
+  // sneaking through.
+  const test = (tok) => {
+    const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
+    return pattern.test(hayLower);
+  };
 
   if (matchMode === "some") {
-    return tokens.some((tok) => {
-      const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
-      return pattern.test(hayLower);
-    });
+    return tokens.some(test);
   } else {
-    return tokens.every((tok) => {
-      const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(`\\b${escaped}(es|s)?\\b`, "i");
-      return pattern.test(hayLower);
-    });
+    return tokens.every(test);
   }
 }
 

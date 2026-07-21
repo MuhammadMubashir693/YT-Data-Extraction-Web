@@ -755,7 +755,7 @@ function SearchTab() {
   const [endDate, setEndDate] = useState("");
   const [useDateRange, setUseDateRange] = useState(false);
   const [useDuration, setUseDuration] = useState(false);
-  const [durationFilter, setDurationFilter] = useState("medium");
+  const [durationFilter, setDurationFilter] = useState(() => new Set(["medium"]));
   const [liveFilter, setLiveFilter] = useState(false);
 
   // Channel search state
@@ -769,6 +769,7 @@ function SearchTab() {
   const [plUsePerField, setPlUsePerField] = useState(false);
   const [plKeywordTitle, setPlKeywordTitle] = useState("");
   const [plKeywordChannel, setPlKeywordChannel] = useState("");
+  const [plChannelId, setPlChannelId] = useState("");
   const [plSortOption, setPlSortOption] = useState("relevance");
 
   // Shared max results
@@ -869,7 +870,7 @@ function SearchTab() {
     setEndDate("");
     setUseDateRange(false);
     setUseDuration(false);
-    setDurationFilter("medium");
+    setDurationFilter(new Set(["medium"]));
     setChKeyword("");
     setChSortOption("relevance");
     setCountryFilter(new Set());
@@ -878,6 +879,7 @@ function SearchTab() {
     setPlUsePerField(false);
     setPlKeywordTitle("");
     setPlKeywordChannel("");
+    setPlChannelId("");
     setPlSortOption("relevance");
     setMaxResults("50");
     setLiveFilter(false);
@@ -905,7 +907,7 @@ function SearchTab() {
             params.startDate = startDate;
             params.endDate = endDate;
           }
-          if (useDuration) params.durationFilter = durationFilter;
+          if (useDuration && durationFilter.size) params.durationFilter = [...durationFilter].join(",");
           if (sortOption) params.sort = sortOption;
           params.maxResults = maxResults;
           const data = await apiGet("channel-videos", params);
@@ -914,7 +916,8 @@ function SearchTab() {
           const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
           const hasKeyword = usePerFieldKeywords ? hasPerField : Boolean(keyword.trim());
           const hasDateRange = useDateRange && Boolean(startDate || endDate);
-          if (!hasKeyword && !hasDateRange && !useDuration) {
+          const hasDurationFilter = useDuration && durationFilter.size > 0;
+          if (!hasKeyword && !hasDateRange && !hasDurationFilter) {
             throw new Error("Provide a keyword, date range, or duration type to search");
           }
           const params = { sort: sortOption, maxResults, matchMode };
@@ -927,7 +930,7 @@ function SearchTab() {
           }
           if (startDate) params.startDate = startDate;
           if (endDate) params.endDate = endDate;
-          if (useDuration) params.durationFilter = durationFilter;
+          if (hasDurationFilter) params.durationFilter = [...durationFilter].join(",");
           const data = await apiGet("search-videos", params);
           setVideos(data.videos);
         }
@@ -951,6 +954,7 @@ function SearchTab() {
         } else {
           params.keyword = plKeyword.trim();
         }
+        if (plChannelId.trim()) params.channelId = plChannelId.trim();
         const data = await apiGet("search-playlists", params);
         setPlaylistResults(data.playlists);
         setPlSortOption("relevance");
@@ -998,8 +1002,9 @@ function SearchTab() {
         ? Boolean(keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim())
         : Boolean(keyword.trim());
       const hasDateRange = useDateRange && Boolean(startDate || endDate);
-      const hasDurationFilter = useDuration;
+      const hasDurationFilter = useDuration && durationFilter.size > 0;
       if (!hasKeyword && !hasDateRange && !hasDurationFilter) return true;
+      if (useDuration && durationFilter.size === 0) return true;
     } else if (category === "channel") {
       if (!chKeyword.trim()) return true;
     } else {
@@ -1170,12 +1175,26 @@ function SearchTab() {
             </label>
             {useDuration && (
               <div className="field">
-                <label>Duration</label>
-                <select value={durationFilter} onChange={(e) => setDurationFilter(e.target.value)}>
-                  <option value="short">Short (&lt; 4 min)</option>
-                  <option value="medium">Medium (4–20 min)</option>
-                  <option value="long">Long (&gt; 20 min)</option>
-                </select>
+                <label>Duration (select one or more)</label>
+                {[
+                  { value: "short", label: "Short (< 4 min)" },
+                  { value: "medium", label: "Medium (4–20 min)" },
+                  { value: "long", label: "Long (> 20 min)" },
+                ].map(({ value, label }) => (
+                  <label className="checkbox-row" key={value}>
+                    <input
+                      type="checkbox"
+                      checked={durationFilter.has(value)}
+                      onChange={(e) => {
+                        const next = new Set(durationFilter);
+                        if (e.target.checked) next.add(value);
+                        else next.delete(value);
+                        setDurationFilter(next);
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
               </div>
             )}
 
@@ -1192,10 +1211,26 @@ function SearchTab() {
 
         {/* ══ CHANNEL fields ══ */}
         {category === "channel" && (
-          <div className="field">
-            <label>Channel name keyword</label>
-            <input type="text" placeholder="Search by channel name" value={chKeyword} onChange={(e) => setChKeyword(e.target.value)} />
-          </div>
+          <>
+            <div className="field">
+              <label>Channel name keyword</label>
+              <input type="text" placeholder="Search by channel name" value={chKeyword} onChange={(e) => setChKeyword(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Sort channels by</label>
+              <select value={chSortOption} onChange={(e) => setChSortOption(e.target.value)}>
+                <option value="relevance">Relevance</option>
+                <option value="title-asc">Title (A → Z)</option>
+                <option value="title-desc">Title (Z → A)</option>
+                <option value="subscribers-desc">Subscribers (highest first)</option>
+                <option value="subscribers-asc">Subscribers (lowest first)</option>
+                <option value="videoCount-desc">Video count (highest first)</option>
+                <option value="videoCount-asc">Video count (lowest first)</option>
+                <option value="viewCount-desc">View count (highest first)</option>
+                <option value="viewCount-asc">View count (lowest first)</option>
+              </select>
+            </div>
+          </>
         )}
 
         {/* ══ PLAYLIST fields ══ */}
@@ -1222,6 +1257,25 @@ function SearchTab() {
                 <input type="text" placeholder="e.g. cooking basics" value={plKeyword} onChange={(e) => setPlKeyword(e.target.value)} />
               </div>
             )}
+            <div className="field">
+              <label>Channel ID (optional)</label>
+              <input
+                type="text"
+                placeholder="Restrict to playlists from a specific channel (e.g. UCxxxxxxxxxxxxxxxxxxxxxx)"
+                value={plChannelId}
+                onChange={(e) => setPlChannelId(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Sort playlists by</label>
+              <select value={plSortOption} onChange={(e) => setPlSortOption(e.target.value)}>
+                <option value="relevance">Relevance</option>
+                <option value="title-asc">Title (A → Z)</option>
+                <option value="title-desc">Title (Z → A)</option>
+                <option value="videoCount-desc">Video count (highest first)</option>
+                <option value="videoCount-asc">Video count (lowest first)</option>
+              </select>
+            </div>
           </>
         )}
 
@@ -1299,22 +1353,6 @@ function SearchTab() {
       {channelResults && (
         <>
           <p className="result-count">Result count: {fmtCount(channelResults.length)}</p>
-          
-          {/* Channel sorting */}
-          <div className="field" style={{ maxWidth: 260 }}>
-            <label>Sort channels by</label>
-            <select value={chSortOption} onChange={(e) => setChSortOption(e.target.value)}>
-              <option value="relevance">Relevance</option>
-              <option value="title-asc">Title (A → Z)</option>
-              <option value="title-desc">Title (Z → A)</option>
-              <option value="subscribers-desc">Subscribers (highest first)</option>
-              <option value="subscribers-asc">Subscribers (lowest first)</option>
-              <option value="videoCount-desc">Video count (highest first)</option>
-              <option value="videoCount-asc">Video count (lowest first)</option>
-              <option value="viewCount-desc">View count (highest first)</option>
-              <option value="viewCount-asc">View count (lowest first)</option>
-            </select>
-          </div>
 
           {/* Country filter */}
           {availableCountries.length > 0 && (
@@ -1414,18 +1452,6 @@ function SearchTab() {
       {playlistResults && (
         <>
           <p className="result-count">Result count: {fmtCount(playlistResults.length)}</p>
-          
-          {/* Playlist sorting */}
-          <div className="field" style={{ maxWidth: 260 }}>
-            <label>Sort playlists by</label>
-            <select value={plSortOption} onChange={(e) => setPlSortOption(e.target.value)}>
-              <option value="relevance">Relevance</option>
-              <option value="title-asc">Title (A → Z)</option>
-              <option value="title-desc">Title (Z → A)</option>
-              <option value="videoCount-desc">Video count (highest first)</option>
-              <option value="videoCount-asc">Video count (lowest first)</option>
-            </select>
-          </div>
 
           <ExportBar data={playlistResults} filenameBase="playlist-search-results" />
           {(() => {
