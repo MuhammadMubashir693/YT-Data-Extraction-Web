@@ -1799,6 +1799,29 @@ app.get("/api/comments", async (req, res) => {
           return false;
         }
         return true;
+      })
+      .map((thread) => {
+        // When sorting by "top" (relevance) with a keyword filter active,
+        // trim each surfaced thread down to only the replies that
+        // themselves match the keyword — the point of "top" is to surface
+        // the most relevant discussion, so burying the matching reply under
+        // a wall of unrelated ones defeats that. Any other sort (latest,
+        // earliest, likes) keeps every reply, since there's no relevance
+        // signal to filter by.
+        if (sort === "top" && keyword) {
+          const matchingReplies = thread.replies.filter((reply) =>
+            `${reply.textDisplay} ${reply.textOriginal}`.toLowerCase().includes(keyword)
+          );
+          // Also override replyCount (normally YouTube's true total reply
+          // count) to the filtered count. Otherwise the UI's "Show replies
+          // (N)" / "Load more" logic — which compares replyCount against
+          // replies.length to decide whether more remain — would think
+          // unfiltered replies are still missing and offer a "load more"
+          // that fetches every reply back in unfiltered via
+          // /api/comment-replies, defeating the point of this filter.
+          return { ...thread, replies: matchingReplies, replyCount: matchingReplies.length };
+        }
+        return thread;
       });
 
     if (sort === "earliest") {
@@ -2310,22 +2333,16 @@ app.get("/api/search-videos", async (req, res) => {
             return true;
           });
         } else if (keyword?.trim()) {
-          // Apply single keyword filtering with matchMode
-          const matchAll = matchMode !== "some";
-          fullItems = fullItems.filter((v) => {
-            const haystack = [
-              v.snippet.title,
-              v.snippet.description,
-              v.snippet.channelTitle
-            ].join(" ").toLowerCase();
-            
-            const tokens = keyword.trim().toLowerCase().split(/\s+/).filter(Boolean);
-            if (matchAll) {
-              return tokens.every(tok => haystack.includes(tok));
-            } else {
-              return tokens.some(tok => haystack.includes(tok));
-            }
-          });
+          // Apply single keyword filtering with matchMode via the shared
+          // helper, instead of a separately-maintained inline substring
+          // check that could (and did) drift out of sync with it.
+          fullItems = fullItems.filter((v) =>
+            keywordMatches(
+              [v.snippet.title, v.snippet.description, v.snippet.channelTitle],
+              keyword,
+              matchMode
+            )
+          );
         }
       }
 
