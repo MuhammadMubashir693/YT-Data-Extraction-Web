@@ -2279,7 +2279,16 @@ function CommentCard({ comment, children, parentCommentId }) {
           </div>
         </div>
       </div>
-      <div className="description" style={{ marginTop: 10, maxHeight: "none", overflow: "visible" }}>
+      <div
+        className="description"
+        style={{
+          marginTop: 10,
+          maxHeight: "none",
+          overflow: "visible",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
+        }}
+      >
         <LinkifiedText text={comment.textDisplay} videoId={comment.videoId} />
       </div>
       {children}
