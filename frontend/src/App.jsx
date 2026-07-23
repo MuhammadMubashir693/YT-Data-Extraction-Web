@@ -1174,7 +1174,7 @@ function SearchTab() {
             </label>
             {useDuration && (
               <div className="field">
-                <label>Duration (select one or more)</label>
+                <label>Duration (select one)</label>
                 {[
                   { value: "short", label: "Short (< 4 min)" },
                   { value: "medium", label: "Medium (4–20 min)" },
@@ -1182,13 +1182,18 @@ function SearchTab() {
                 ].map(({ value, label }) => (
                   <label className="checkbox-row" key={value}>
                     <input
-                      type="checkbox"
+                      type="radio"  // Changed from checkbox to radio
+                      name="duration"  // Same name makes them mutually exclusive
+                      value={value}
                       checked={durationFilter.has(value)}
-                      onChange={(e) => {
-                        const next = new Set(durationFilter);
-                        if (e.target.checked) next.add(value);
-                        else next.delete(value);
-                        setDurationFilter(next);
+                      onChange={() => {
+                        // Radio buttons handle the "deselect" differently
+                        // If clicking the same one, you might want to deselect it
+                        if (durationFilter.has(value)) {
+                          setDurationFilter(new Set()); // Deselect
+                        } else {
+                          setDurationFilter(new Set([value])); // Select only this one
+                        }
                       }}
                     />
                     {label}
