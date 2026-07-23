@@ -335,6 +335,48 @@ export function keywordMatchesPerField(snippet, { keywordTitle, keywordDescripti
   return checks.every(({ keyword, field }) => keywordMatches([field], keyword));
 }
 
+// ── Shorts detection via oEmbed ──────────────────────────────────────────
+//
+// YouTube's oEmbed endpoint (https://www.youtube.com/oembed) always reports
+// a landscape (width > height) player size when called with a regular
+// /watch?v= URL, even for videos that are actually Shorts — so that alone
+// can't tell Shorts apart from standard/live videos. Calling oEmbed with the
+// /shorts/<id> URL form instead is what actually flips the reported
+// dimensions: real Shorts come back with height > width (their true
+// portrait player), while standard/live videos either fail to resolve via
+// that URL form or still come back landscape. So: a video counts as a Short
+// only when the /shorts/ oEmbed call succeeds AND reports height > width.
+// Anything else (an error, or width >= height) is treated as not-a-Short,
+// and the existing liveStreamingDetails-based check still takes priority
+// for classifying live streams/premieres.
+const OEMBED_TIMEOUT_MS = 4000;
+
+export async function fetchIsShortViaOEmbed(videoId) {
+  try {
+    const url = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+      `https://www.youtube.com/shorts/${videoId}`
+    )}&format=json`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OEMBED_TIMEOUT_MS);
+    let resp;
+    try {
+      resp = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    const width = Number(data.width);
+    const height = Number(data.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+    return height > width;
+  } catch {
+    // Network error, timeout, or non-JSON response — default to "not a Short"
+    // rather than letting one flaky lookup break the whole list.
+    return false;
+  }
+}
+
 // ── Video shaping ───────────────────────────────────────────────────────
 
 export function shapeVideo(item, idOverride) {
@@ -374,5 +416,9 @@ export function shapeVideo(item, idOverride) {
     actualStartTime: liveDetails.actualStartTime ? fmtDatetime(liveDetails.actualStartTime) : null,
     actualEndTime: liveDetails.actualEndTime ? fmtDatetime(liveDetails.actualEndTime) : null,
     liveBroadcastContent: sid.liveBroadcastContent || "none",
+    // Filled in afterwards by attachShortsFlags() via an oEmbed lookup — a
+    // video is never both live and a Short, so this starts false and is
+    // only ever set true for non-live videos.
+    isShort: false,
   };
 }

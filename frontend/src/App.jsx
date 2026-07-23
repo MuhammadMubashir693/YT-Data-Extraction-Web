@@ -565,8 +565,12 @@ function toggleCategoryFilter(setFilter, clicked) {
   });
 }
 
-function matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive }) {
+function matchesCategoryFilter(categoryFilter, video) {
   if (categoryFilter.has("all")) return true;
+  const isLive = !!(video.scheduledStartTime || video.actualStartTime || video.actualEndTime);
+  // Use the real isShort flag from the API
+  const isShort = video.isShort === true;
+  const isStandard = !isLive && !isShort;
   return (
     (isStandard && categoryFilter.has("standard")) ||
     (isShort && categoryFilter.has("shorts")) ||
@@ -796,19 +800,14 @@ function SearchTab() {
 
   const displayedVideos = useMemo(() => {
     if (!sortedVideos) return [];
-    return sortedVideos.filter(v => {
-      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
-      const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
-      const isStandard = !isLive && !isShort;
-      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
-    });
+    return sortedVideos.filter(v => matchesCategoryFilter(categoryFilter, v));
   }, [sortedVideos, categoryFilter]);
 
   const counts = useMemo(() => {
     if (!sortedVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
     const all = sortedVideos.length;
     const live = sortedVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = sortedVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && v.durationSeconds !== null && v.durationSeconds <= 180).length;
+    const shorts = sortedVideos.filter(v => v.isShort === true).length;
     const standard = all - live - shorts;
     return { all, standard, shorts, live };
   }, [sortedVideos]);
@@ -1953,19 +1952,14 @@ function ChannelTab({ active = true }) {
 
   const displayedVideos = useMemo(() => {
     if (!latestVideos) return [];
-    return latestVideos.filter(v => {
-      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
-      const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
-      const isStandard = !isLive && !isShort;
-      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
-    });
+    return latestVideos.filter(v => matchesCategoryFilter(categoryFilter, v));
   }, [latestVideos, categoryFilter]);
 
   const counts = useMemo(() => {
     if (!latestVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
     const all = latestVideos.length;
     const live = latestVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = latestVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && v.durationSeconds !== null && v.durationSeconds <= 180).length;
+    const shorts = latestVideos.filter(v => v.isShort === true).length;
     const standard = all - live - shorts;
     return { all, standard, shorts, live };
   }, [latestVideos]);
@@ -2697,19 +2691,14 @@ function PlaylistTab({ active = true }) {
 
   const displayedVideos = useMemo(() => {
     if (!filteredVideos) return [];
-    return filteredVideos.filter(v => {
-      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
-      const isShort = !isLive && v.durationSeconds !== null && v.durationSeconds <= 180;
-      const isStandard = !isLive && !isShort;
-      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
-    });
+    return filteredVideos.filter(v => matchesCategoryFilter(categoryFilter, v));
   }, [filteredVideos, categoryFilter]);
 
   const counts = useMemo(() => {
     if (!filteredVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
     const all = filteredVideos.length;
     const live = filteredVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = filteredVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && v.durationSeconds !== null && v.durationSeconds <= 180).length;
+    const shorts = filteredVideos.filter(v => v.isShort === true).length;
     const standard = all - live - shorts;
     return { all, standard, shorts, live };
   }, [filteredVideos]);

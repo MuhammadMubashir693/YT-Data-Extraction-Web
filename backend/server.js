@@ -21,6 +21,7 @@ import {
   shapeVideo,
   durationToSeconds,
   highResBannerUrl,
+  fetchIsShortViaOEmbed,
 } from "./helpers.js";
 
 dotenv.config();
@@ -252,6 +253,51 @@ const searchPlaylistsCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100
 
 function cacheKey(parts) {
   return JSON.stringify(parts);
+}
+
+// videoId -> boolean (isShort), from the /shorts/ oEmbed lookup. A video's
+// aspect ratio never changes, so this is cached far longer than the
+// YouTube-API-backed caches above, and shared across every endpoint below.
+const shortsFlagCache = createCache({ ttlMs: 6 * 60 * 60 * 1000, maxEntries: 5000 });
+
+async function isShortCached(videoId) {
+  const cached = shortsFlagCache.get(videoId);
+  if (cached !== null) return cached;
+  const isShort = await fetchIsShortViaOEmbed(videoId);
+  shortsFlagCache.set(videoId, isShort);
+  return isShort;
+}
+
+// Runs `fn` over `items` with at most `limit` calls in flight at once, so a
+// list of e.g. 200 videos doesn't fire 200 simultaneous oEmbed requests at
+// YouTube and risk getting rate-limited or timing them all out together.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// Mutates each shaped video in `videos` with its real isShort flag. A video
+// already known to be live (from liveStreamingDetails) is never a Short, so
+// those are skipped entirely — no oEmbed call needed. Every request goes
+// through the shared shortsFlagCache first, so only genuinely new video IDs
+// ever hit the network.
+async function attachShortsFlags(videos) {
+  const candidates = videos.filter(
+    (v) => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)
+  );
+  await mapWithConcurrency(candidates, 8, async (v) => {
+    v.isShort = await isShortCached(v.videoId);
+  });
+  return videos;
 }
 
 /**
@@ -1239,6 +1285,7 @@ app.get("/api/channel-videos", async (req, res) => {
     sortVideos(sortedItems, cvSort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
+    await attachShortsFlags(videos);
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
@@ -1353,6 +1400,7 @@ app.get("/api/channel-latest-videos", async (req, res) => {
         );
 
         const videos = fullItems.slice(0, count).map((v) => shapeVideo(v));
+        await attachShortsFlags(videos);
         result = { videos, count: videos.length, uploadsPlaylistId, nextPageToken, prevPageToken };
       }
 
@@ -2115,6 +2163,7 @@ app.get("/api/playlist", async (req, res) => {
     const start = req.query.pageToken ? Math.max(parseInt(req.query.pageToken, 10) || 0, 0) : 0;
     const end = Math.min(start + max, sortedItems.length);
     const pageSlice = sortedItems.slice(start, end).map((v) => shapeVideo(v));
+    await attachShortsFlags(pageSlice);
     const nextPageToken = end < sortedItems.length ? String(end) : null;
 
     res.json({
@@ -2358,6 +2407,7 @@ app.get("/api/search-videos", async (req, res) => {
     sortVideos(sortedItems, sort);
 
     const videos = sortedItems.map((v) => shapeVideo(v));
+    await attachShortsFlags(videos);
     res.json({ videos, count: videos.length });
   } catch (err) {
     handleError(res, err);
