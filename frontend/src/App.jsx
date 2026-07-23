@@ -1414,12 +1414,12 @@ function SearchTab() {
               default:
                 break;
             }
-            
+
             // Filter by country
             if (countryFilter.size > 0) {
               sortedChannels = sortedChannels.filter(ch => countryFilter.has(ch.country));
             }
-            
+
             return sortedChannels.map((ch) => (
               <ChannelResultCard key={ch.channelId} ch={ch} />
             ));
@@ -2084,6 +2084,11 @@ function ChannelTab({ active = true }) {
                   </div>
                   <p className="result-count" style={{ margin: "0 0 8px" }}>
                     Playlist count: {fmtCount(sortedPlaylists.length)}
+                    {(plTitleSearch || plStartDate || plEndDate) && filteredPlaylists.length !== sortedPlaylists.length && (
+                      <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                        {" "}({fmtCount(filteredPlaylists.length)} shown matching filters)
+                      </span>
+                    )}
                   </p>
                   <div className="field">
                     <label>Search playlists by title</label>
