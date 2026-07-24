@@ -48,7 +48,7 @@ const MONGO_URI =
   process.env.MONGO_URI ||
   `mongodb://${encodeURIComponent(MONGO_USER)}:${encodeURIComponent(MONGO_PASS)}@${MONGO_HOST}:${MONGO_PORT}/?authSource=admin`;
 
-const mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
+const mongoClient = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 10000 });
 let channelCollection = null;
 let savedVideoCollection = null;
 let savedPlaylistCollection = null;

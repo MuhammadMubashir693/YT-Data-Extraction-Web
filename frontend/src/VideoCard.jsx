@@ -28,8 +28,8 @@ export default function VideoCard({ v, showTags = false }) {
           <span><b>Views:</b> {fmtCount(v.views)}</span>
           <span><b>Likes:</b> {fmtCount(v.likes)}</span>
           <span><b>Comments:</b> {fmtCount(v.comments)}</span>
-          <span><b>Default language:</b> {getLanguageName(v.defaultLanguage)}</span>
-          <span><b>Default audio language:</b> {getLanguageName(v.defaultAudioLanguage)}</span>
+          <span><b>Default language:</b> {v.defaultLanguage}</span>
+          <span><b>Default audio language:</b> {v.defaultAudioLanguage}</span>
           <span><b>Category:</b> {getCategoryName(v.categoryId)}</span>
         </div>
         

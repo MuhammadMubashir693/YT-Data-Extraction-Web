@@ -1,6 +1,10 @@
 import { parse as parseISODuration, toSeconds } from "iso8601-duration";
 import countries from "i18n-iso-countries";
 import en from "i18n-iso-countries/langs/en.json" with { type: "json" };
+import { CATEGORY_MAP } from "./map.js";
+import { getCategoryName } from "./map.js";
+import { LANGUAGE_MAP } from "./map.js";
+import { getLanguageName } from "./map.js";
 
 countries.registerLocale(en);
 
@@ -450,10 +454,14 @@ export function shapeVideo(item, idOverride) {
       `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`,
     description: (sid.description || "").trim(),
     tags: Array.isArray(sid.tags) ? sid.tags : [],
-    defaultLanguage: sid.defaultLanguage || "N/A",
-    defaultAudioLanguage: sid.defaultAudioLanguage || "N/A",
+    defaultLanguage: getLanguageName(sid.defaultLanguage) || "N/A",
+    defaultAudioLanguage: getLanguageName(sid.defaultAudioLanguage) || "N/A",
     categoryId: sid.categoryId || null,
-    regionRestriction: cdet.regionRestriction || null,
+    categoryName: getCategoryName(sid.categoryId) || null,
+    regionRestriction: cdet.regionRestriction ? {
+      ...cdet.regionRestriction,
+      blocked: cdet.regionRestriction.blocked?.map(fmtCountry) || []
+    } : null,
     publishedAtRaw: sid.publishedAt,
     scheduledStartTime: liveDetails.scheduledStartTime ? fmtDatetime(liveDetails.scheduledStartTime) : null,
     actualStartTime: liveDetails.actualStartTime ? fmtDatetime(liveDetails.actualStartTime) : null,
