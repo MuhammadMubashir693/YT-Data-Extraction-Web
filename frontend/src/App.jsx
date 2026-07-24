@@ -226,6 +226,7 @@ const TABS = [
   { id: "channel", label: "Channel Details" },
   { id: "comment", label: "Comment Details" },
   { id: "comments", label: "Comment Threads" },
+  { id: "commentPicker", label: "Comment Picker" },
   { id: "playlist", label: "Playlist Details" },
   { id: "search", label: "Search" },
   { id: "manageChannels", label: "Manage Channels" },
@@ -237,7 +238,21 @@ const TABS = [
 async function apiGet(path, params = {}) {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`/api/${path}${qs ? `?${qs}` : ""}`);
-  const data = await res.json();
+  const raw = await res.text();
+  let data;
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    // A non-JSON body usually means a proxy/server timeout or crash page
+    // came back instead of a real API response (this can happen on very
+    // heavy requests, like walking every comment on a huge video) — surface
+    // something readable instead of a raw JSON.parse error.
+    throw new Error(
+      res.ok
+        ? "The server returned an unexpected response. Please try again."
+        : `Request failed (${res.status}). The server may have timed out — try again, or narrow the request.`
+    );
+  }
   if (!res.ok) {
     throw new Error(data.error || "Request couldn't be processed");
   }
@@ -565,12 +580,8 @@ function toggleCategoryFilter(setFilter, clicked) {
   });
 }
 
-function matchesCategoryFilter(categoryFilter, video) {
+function matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive }) {
   if (categoryFilter.has("all")) return true;
-  const isLive = !!(video.scheduledStartTime || video.actualStartTime || video.actualEndTime);
-  // Use the real isShort flag from the API
-  const isShort = video.isShort === true;
-  const isStandard = !isLive && !isShort;
   return (
     (isStandard && categoryFilter.has("standard")) ||
     (isShort && categoryFilter.has("shorts")) ||
@@ -800,14 +811,19 @@ function SearchTab() {
 
   const displayedVideos = useMemo(() => {
     if (!sortedVideos) return [];
-    return sortedVideos.filter(v => matchesCategoryFilter(categoryFilter, v));
+    return sortedVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && !!v.isShort;
+      const isStandard = !isLive && !isShort;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
+    });
   }, [sortedVideos, categoryFilter]);
 
   const counts = useMemo(() => {
     if (!sortedVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
     const all = sortedVideos.length;
     const live = sortedVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = sortedVideos.filter(v => v.isShort === true).length;
+    const shorts = sortedVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && !!v.isShort).length;
     const standard = all - live - shorts;
     return { all, standard, shorts, live };
   }, [sortedVideos]);
@@ -1174,7 +1190,7 @@ function SearchTab() {
             </label>
             {useDuration && (
               <div className="field">
-                <label>Duration (select one)</label>
+                <label>Duration (select one or more)</label>
                 {[
                   { value: "short", label: "Short (< 4 min)" },
                   { value: "medium", label: "Medium (4–20 min)" },
@@ -1182,18 +1198,13 @@ function SearchTab() {
                 ].map(({ value, label }) => (
                   <label className="checkbox-row" key={value}>
                     <input
-                      type="radio"  // Changed from checkbox to radio
-                      name="duration"  // Same name makes them mutually exclusive
-                      value={value}
+                      type="checkbox"
                       checked={durationFilter.has(value)}
-                      onChange={() => {
-                        // Radio buttons handle the "deselect" differently
-                        // If clicking the same one, you might want to deselect it
-                        if (durationFilter.has(value)) {
-                          setDurationFilter(new Set()); // Deselect
-                        } else {
-                          setDurationFilter(new Set([value])); // Select only this one
-                        }
+                      onChange={(e) => {
+                        const next = new Set(durationFilter);
+                        if (e.target.checked) next.add(value);
+                        else next.delete(value);
+                        setDurationFilter(next);
                       }}
                     />
                     {label}
@@ -1957,14 +1968,19 @@ function ChannelTab({ active = true }) {
 
   const displayedVideos = useMemo(() => {
     if (!latestVideos) return [];
-    return latestVideos.filter(v => matchesCategoryFilter(categoryFilter, v));
+    return latestVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && !!v.isShort;
+      const isStandard = !isLive && !isShort;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
+    });
   }, [latestVideos, categoryFilter]);
 
   const counts = useMemo(() => {
     if (!latestVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
     const all = latestVideos.length;
     const live = latestVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = latestVideos.filter(v => v.isShort === true).length;
+    const shorts = latestVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && !!v.isShort).length;
     const standard = all - live - shorts;
     return { all, standard, shorts, live };
   }, [latestVideos]);
@@ -2083,11 +2099,6 @@ function ChannelTab({ active = true }) {
                   </div>
                   <p className="result-count" style={{ margin: "0 0 8px" }}>
                     Playlist count: {fmtCount(sortedPlaylists.length)}
-                    {(plTitleSearch || plStartDate || plEndDate) && filteredPlaylists.length !== sortedPlaylists.length && (
-                      <span style={{ color: "var(--muted)", fontWeight: 400 }}>
-                        {" "}({fmtCount(filteredPlaylists.length)} shown matching filters)
-                      </span>
-                    )}
                   </p>
                   <div className="field">
                     <label>Search playlists by title</label>
@@ -2667,6 +2678,329 @@ function RepliesList({ thread, replyState, loadMoreReplies, active = true }) {
   );
 }
 
+// ── Tab: Comment Picker ──────────────────────────────────────────────────
+//
+// Fetches one page of top-level comment threads at a time (Next Page/
+// Previous Page buttons page through a video's comments instead of pulling
+// them all at once), caches each page client-side by its pageToken so
+// flipping back and forth doesn't refetch, and randomly picks one parent
+// comment from whichever page is loaded — shown together with all of its
+// replies, using the same CommentCard/comment-reply markup as the Comment
+// Threads and Comment Details tabs.
+const commentPickerCache = new Map(); // `${videoId}:${pageToken}` -> page data
+
+function pickRandomThread(threads, excludeId) {
+  if (!threads?.length) return null;
+  if (threads.length === 1) return threads[0];
+  let candidate;
+  do {
+    candidate = threads[Math.floor(Math.random() * threads.length)];
+  } while (candidate.commentId === excludeId);
+  return candidate;
+}
+
+function CommentPickerTab() {
+  const [input, setInput] = useState("");
+  const [videoId, setVideoId] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
+
+  // Page state
+  const [pageTokens, setPageTokens] = useState([null]); // first page uses null token
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [pagesData, setPagesData] = useState({}); // key: token string (or "null"), value: { threads, commentCount, nextPageToken }
+
+  const [selectedThread, setSelectedThread] = useState(null);
+  const [selectedReplies, setSelectedReplies] = useState([]);
+  const [repliesLoading, setRepliesLoading] = useState(false);
+  const [repliesError, setRepliesError] = useState("");
+
+  // Get current page data
+  const currentToken = pageTokens[currentPageIndex] ?? null;
+  const currentPageData = pagesData[currentToken === null ? "null" : currentToken] || null;
+  const threads = currentPageData?.threads || [];
+  const commentCount = currentPageData?.commentCount ?? null;
+  const nextPageToken = currentPageData?.nextPageToken || null;
+
+  const hasPrev = currentPageIndex > 0;
+  const hasNext = Boolean(nextPageToken);
+
+  // Fetch a page by token
+  const fetchPage = async (token, direction) => {
+    if (!input.trim()) return;
+    setError("");
+    setLoading(true);
+    setSelectedThread(null);
+    setSelectedReplies([]);
+    setRepliesError("");
+
+    try {
+      const key = `${input.trim()}:${token || ""}`;
+      let data = commentPickerCache.get(key);
+      if (!data) {
+        const params = { q: input };
+        if (token) params.pageToken = token;
+        data = await apiGet("all-comments", params);
+        commentPickerCache.set(key, data);
+      }
+
+      setVideoId(data.videoId);
+
+      // Store page data
+      const tokenKey = token === null ? "null" : token;
+      setPagesData((prev) => ({
+        ...prev,
+        [tokenKey]: {
+          threads: data.threads || [],
+          commentCount: data.commentCount ?? null,
+          nextPageToken: data.nextPageToken || null,
+        },
+      }));
+
+      // If we navigated to a new page that's not yet in the tokens list, add it
+      setPageTokens((prev) => {
+        if (direction === "next" && token) {
+          // token is the pageToken we used to fetch; it should already be the last element if we're going forward
+          // but we ensure it's present
+          if (!prev.includes(token)) {
+            return [...prev, token];
+          }
+        }
+        return prev;
+      });
+
+      // Pick a random thread from the new page
+      const newThreads = data.threads || [];
+      if (newThreads.length) {
+        setSelectedThread(pickRandomThread(newThreads));
+      } else {
+        setSelectedThread(null);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Navigate to next page
+  const goNext = async () => {
+    if (!hasNext || loading) return;
+    // The next page token is the one we have from current page data
+    const nextToken = nextPageToken;
+    // Ensure the token is in the list (it should be, but we'll add)
+    setPageTokens((prev) => {
+      if (!prev.includes(nextToken)) {
+        return [...prev, nextToken];
+      }
+      return prev;
+    });
+    setCurrentPageIndex((idx) => idx + 1);
+    // The new page data might already be cached, so we just need to fetch if not present
+    const tokenKey = nextToken === null ? "null" : nextToken;
+    if (!pagesData[tokenKey]) {
+      await fetchPage(nextToken, "next");
+    } else {
+      // If already cached, just update selected thread
+      const cached = pagesData[tokenKey];
+      if (cached.threads.length) {
+        setSelectedThread(pickRandomThread(cached.threads));
+      }
+    }
+  };
+
+  // Navigate to previous page
+  const goPrev = async () => {
+    if (!hasPrev || loading) return;
+    const newIndex = currentPageIndex - 1;
+    const prevToken = pageTokens[newIndex] ?? null;
+    setCurrentPageIndex(newIndex);
+    const tokenKey = prevToken === null ? "null" : prevToken;
+    if (!pagesData[tokenKey]) {
+      await fetchPage(prevToken, "prev");
+    } else {
+      const cached = pagesData[tokenKey];
+      if (cached.threads.length) {
+        setSelectedThread(pickRandomThread(cached.threads));
+      }
+    }
+  };
+
+  // Initial submission
+  const submit = async (e) => {
+    e.preventDefault();
+    // Reset state
+    setPageTokens([null]);
+    setCurrentPageIndex(0);
+    setPagesData({});
+    setSelectedThread(null);
+    setSelectedReplies([]);
+    setRepliesError("");
+    // Fetch first page
+    await fetchPage(null, "first");
+  };
+
+  const reset = () => {
+    setInput("");
+    setVideoId(null);
+    setError("");
+    setLoading(false);
+    setPageTokens([null]);
+    setCurrentPageIndex(0);
+    setPagesData({});
+    setSelectedThread(null);
+    setSelectedReplies([]);
+    setRepliesError("");
+    // clear cache? optional
+  };
+
+  const pickAnother = () => {
+    setSelectedThread((prev) => pickRandomThread(threads, prev?.commentId));
+  };
+
+  // Fetch all replies for selected thread (unchanged)
+  useEffect(() => {
+    if (!selectedThread || !selectedThread.replyCount) {
+      setSelectedReplies([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setRepliesLoading(true);
+      setRepliesError("");
+      try {
+        let all = [...(selectedThread.replies || [])];
+        const seenIds = new Set(all.map((r) => r.commentId));
+        let pageToken = null;
+        let hasMore = selectedThread.replyCount > all.length;
+        while (hasMore) {
+          const params = { parentId: selectedThread.commentId, videoId: videoId || undefined };
+          if (pageToken) params.pageToken = pageToken;
+          const data = await apiGet("comment-replies", params);
+          if (cancelled) return;
+          for (const reply of data.replies || []) {
+            if (!seenIds.has(reply.commentId)) {
+              seenIds.add(reply.commentId);
+              all.push(reply);
+            }
+          }
+          hasMore = Boolean(data.hasMore);
+          pageToken = data.nextPageToken;
+        }
+        if (!cancelled) setSelectedReplies(all);
+      } catch (err) {
+        if (!cancelled) setRepliesError(err.message);
+      } finally {
+        if (!cancelled) setRepliesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThread, videoId]);
+
+  return (
+    <div className="panel">
+      <form onSubmit={submit}>
+        <SavedItemSelect
+          items={savedVideos}
+          loaded={savedVideosLoaded}
+          onSelect={setInput}
+          label="Select saved video"
+          placeholder="-- Choose a saved video --"
+        />
+        <div className="field">
+          <label>Video ID or URL</label>
+          <input
+            type="text"
+            placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+        </div>
+        <div className="row" style={{ gap: 12, marginBottom: 14 }}>
+          <button className="primary" disabled={loading || !input.trim()}>
+            {loading && <Spinner />}
+            Fetch &amp; Pick Random Comment
+          </button>
+          <button type="button" className="secondary" disabled={loading} onClick={reset}>
+            Reset
+          </button>
+        </div>
+      </form>
+      <ErrorBox message={error} />
+
+      {threads.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <p className="result-count">
+            Comment count: {commentCount != null ? fmtCount(commentCount) : "N/A"}
+            {" "}(page {currentPageIndex + 1}, {fmtCount(threads.length)} comments on this page)
+          </p>
+
+          <button
+            type="button"
+            className="secondary"
+            style={{ marginBottom: 12 }}
+            onClick={pickAnother}
+            disabled={threads.length < 2}
+          >
+            Pick Another Random Comment (this page)
+          </button>
+
+          <div className="row" style={{ gap: 12, marginBottom: 12 }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!hasPrev || loading}
+              onClick={goPrev}
+            >
+              {loading && <Spinner />}
+              Previous Page
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!hasNext || loading}
+              onClick={goNext}
+            >
+              {loading && <Spinner />}
+              Next Page
+            </button>
+          </div>
+
+          {selectedThread && (
+            <div className="comment-thread" style={{ marginTop: 4 }}>
+              <ExportBar
+                data={{ ...selectedThread, replies: selectedReplies }}
+                filenameBase="comment-picker"
+              />
+              <CommentCard comment={selectedThread}>
+                {repliesLoading && (
+                  <div className="message-box secondary" style={{ marginTop: 10 }}>Loading replies...</div>
+                )}
+                {repliesError && <ErrorBox message={repliesError} />}
+                {!repliesLoading && selectedReplies.length > 0 && (
+                  <div className="replies-list">
+                    {selectedReplies.map((reply) => (
+                      <div key={reply.commentId} className="comment-reply">
+                        <CommentCard comment={reply} parentCommentId={selectedThread.commentId} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CommentCard>
+            </div>
+          )}
+        </div>
+      )}
+      {threads.length === 0 && commentCount !== null && (
+        <p className="result-count" style={{ marginTop: 4 }}>No comments on this page to pick from.</p>
+      )}
+    </div>
+  );
+}
+
 // ── Tab: Playlist Videos ─────────────────────────────────────────────────
 
 function PlaylistTab({ active = true }) {
@@ -2696,14 +3030,19 @@ function PlaylistTab({ active = true }) {
 
   const displayedVideos = useMemo(() => {
     if (!filteredVideos) return [];
-    return filteredVideos.filter(v => matchesCategoryFilter(categoryFilter, v));
+    return filteredVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && !!v.isShort;
+      const isStandard = !isLive && !isShort;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
+    });
   }, [filteredVideos, categoryFilter]);
 
   const counts = useMemo(() => {
     if (!filteredVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
     const all = filteredVideos.length;
     const live = filteredVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = filteredVideos.filter(v => v.isShort === true).length;
+    const shorts = filteredVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && !!v.isShort).length;
     const standard = all - live - shorts;
     return { all, standard, shorts, live };
   }, [filteredVideos]);
@@ -3126,6 +3465,7 @@ export default function App() {
           <div style={{ display: tab === "channel" ? "block" : "none" }}><ChannelTab active={tab === "channel"} /></div>
           <div style={{ display: tab === "comment" ? "block" : "none" }}><CommentTab /></div>
           <div style={{ display: tab === "comments" ? "block" : "none" }}><CommentsTab active={tab === "comments"} /></div>
+          <div style={{ display: tab === "commentPicker" ? "block" : "none" }}><CommentPickerTab /></div>
           <div style={{ display: tab === "playlist" ? "block" : "none" }}><PlaylistTab active={tab === "playlist"} /></div>
           <div style={{ display: tab === "search" ? "block" : "none" }}><SearchTab /></div>
           <div style={{ display: tab === "manageChannels" ? "block" : "none" }}><ChannelManagerTab /></div>

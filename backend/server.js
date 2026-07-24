@@ -19,6 +19,7 @@ import {
   keywordMatches,
   keywordMatchesPerField,
   shapeVideo,
+  shapeCommentThread,
   durationToSeconds,
   highResBannerUrl,
   fetchIsShortViaOEmbed,
@@ -240,6 +241,12 @@ const channelLatestVideosCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries:
 // Keyed on API-affecting params only; keyword/date filtering and thread sort
 // happen after the cache lookup so those can still change per request.
 const commentsCache = createCache({ ttlMs: 3 * 60 * 1000, maxEntries: 100 });
+
+// `${videoId}:${pageToken}` -> { commentCount, threads, nextPageToken, prevPageToken }
+// One page of the Comment Picker's paginated walk through a video's
+// top-level comments — cached per page so flipping back/forth with
+// Next/Previous doesn't re-fetch a page already seen.
+const allCommentsCache = createCache({ ttlMs: 10 * 60 * 1000, maxEntries: 300 });
 
 // Search-style endpoints (channel-videos, search-videos, search-channels,
 // search-playlists) all follow the same shape: page through `search`,
@@ -1782,43 +1789,7 @@ app.get("/api/comments", async (req, res) => {
       if (pageToken) params.pageToken = pageToken;
       const resp = await ytFetch("commentThreads", params);
 
-      const mappedThreads = (resp.items || []).map((thread) => {
-        const top = thread.snippet.topLevelComment;
-        const sn = top.snippet;
-        const replies = (thread.replies?.comments || []).map((reply) => {
-          const rs = reply.snippet;
-          return {
-            commentId: reply.id,
-            authorName: rs.authorDisplayName,
-            authorChannelId: rs.authorChannelId?.value || "N/A",
-            authorChannelUrl: rs.authorChannelUrl || null,
-            authorProfileImageUrl: formatAvatarUrl(rs.authorProfileImageUrl) || null,
-            likeCount: rs.likeCount ?? 0,
-            publishedAt: fmtDatetimeAt(rs.publishedAt),
-            updatedAt: fmtDatetimeAt(rs.updatedAt),
-            textDisplay: rs.textDisplay || "",
-            textOriginal: rs.textOriginal || "",
-            publishedAtRaw: rs.publishedAt,
-            videoId,
-          };
-        });
-        return {
-          commentId: top.id,
-          authorName: sn.authorDisplayName,
-          authorChannelId: sn.authorChannelId?.value || "N/A",
-          authorChannelUrl: sn.authorChannelUrl || null,
-          authorProfileImageUrl: formatAvatarUrl(sn.authorProfileImageUrl) || null,
-          likeCount: sn.likeCount ?? 0,
-          publishedAt: fmtDatetimeAt(sn.publishedAt),
-          updatedAt: fmtDatetimeAt(sn.updatedAt),
-          textDisplay: sn.textDisplay || "",
-          textOriginal: sn.textOriginal || "",
-          replyCount: thread.snippet.totalReplyCount ?? 0,
-          replies,
-          publishedAtRaw: sn.publishedAt,
-          videoId,
-        };
-      });
+      const mappedThreads = (resp.items || []).map((thread) => shapeCommentThread(thread, videoId));
 
       pageData = {
         totalCommentCount,
@@ -1982,6 +1953,100 @@ app.get("/api/comment-replies", async (req, res) => {
       totalResults: resp.pageInfo?.totalResults ?? null,
     });
   } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Part 4b – Paginated comments for a video (Comment Picker) ──────────────
+//
+// Fetches one page of top-level comment threads at a time (same as
+// /api/comments), so the Comment Picker tab can page forward/backward with
+// Next Page/Previous Page buttons instead of walking a video's entire
+// comment list up front — which was slow enough on heavily-commented videos
+// to trip a proxy/gateway timeout. Each page is cached by its pageToken so
+// flipping back and forth doesn't re-fetch pages already seen.
+
+/**
+ * @swagger
+ * /api/all-comments:
+ *   get:
+ *     summary: Get one page of top-level comment threads on a video (cached)
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *         description: Video ID or URL
+ *       - in: query
+ *         name: pageToken
+ *         schema: { type: string }
+ *         description: Page token from a previous response's nextPageToken/prevPageToken
+ *     responses:
+ *       200: { description: One page of comment threads plus the video's total comment count }
+ *       400: { description: Invalid video ID }
+ *       404: { description: Video not found }
+ */
+
+app.get("/api/all-comments", async (req, res) => {
+  try {
+    const raw = req.query.q || "";
+    const videoId = parseVideoId(raw);
+    if (!videoId) {
+      return res.status(400).json({ error: "Could not parse a valid video ID from the input." });
+    }
+    const pageToken = req.query.pageToken ? String(req.query.pageToken) : undefined;
+
+    const key = cacheKey({ videoId, pageToken: pageToken || "" });
+    let result = allCommentsCache.get(key);
+    if (!result) {
+      let totalCommentCount = null;
+      try {
+        const videoStats = await ytFetch("videos", { part: "statistics", id: videoId });
+        const rawCount = videoStats.items?.[0]?.statistics?.commentCount;
+        totalCommentCount = rawCount != null ? Number(rawCount) : null;
+      } catch {
+        // Non-fatal: leave totalCommentCount as null if this lookup fails.
+      }
+
+      const params = {
+        part: "snippet,replies",
+        videoId,
+        maxResults: 50,
+        textFormat: "plainText",
+        order: "time",
+      };
+      if (pageToken) params.pageToken = pageToken;
+      const resp = await ytFetch("commentThreads", params);
+
+      const threads = (resp.items || []).map((thread) => shapeCommentThread(thread, videoId));
+
+      result = {
+        videoId,
+        commentCount: totalCommentCount,
+        threads,
+        nextPageToken: resp.nextPageToken || null,
+        prevPageToken: resp.prevPageToken || null,
+      };
+      allCommentsCache.set(key, result);
+    }
+
+    res.json(result);
+  } catch (err) {
+    // Same "video not found" handling as /api/comments, and the same
+    // fallback to a generic error otherwise (quota, disabled comments, etc.)
+    const errorData = err?.response?.data?.error;
+    const errorMessage = errorData?.message || "";
+    const errorStatus = err?.response?.status;
+
+    if (errorStatus === 404 ||
+      (errorData?.errors && errorData.errors.some(e => e.reason === "notFound")) ||
+      errorMessage.toLowerCase().includes("video") &&
+      errorMessage.toLowerCase().includes("not found")) {
+      return res.status(404).json({
+        error: "The video could not be found. Please check the video ID or URL."
+      });
+    }
+
     handleError(res, err);
   }
 });

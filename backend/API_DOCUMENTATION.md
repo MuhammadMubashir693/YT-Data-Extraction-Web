@@ -678,6 +678,46 @@ Errors:
 
 ---
 
+## GET `/api/all-comments`
+
+Description: Fetch one page of top-level comment threads for a video, using YouTube's `commentThreads.list` with `order=time` (latest-first). This endpoint is used by the **Comment Picker** tab to paginate through a video's comments without fetching them all at once. The client stores page tokens in memory to enable both forward and backward navigation.
+
+Query parameters:
+
+- `q` (required) – video ID or URL.
+- `pageToken` – optional YouTube pagination token (from a previous response's `nextPageToken`). If omitted, returns the first page.
+
+Response: `200 OK`
+
+```json
+{
+  "videoId": "string",
+  "commentCount": "number or null (if resolvable from video statistics)",
+  "threads": [
+    {
+      // Each thread is the same shape as in `/api/comments`
+      "commentId": "string",
+      "authorName": "string",
+      "authorChannelId": "string or N/A",
+      "authorChannelUrl": "url or null",
+      "authorProfileImageUrl": "url or null",
+      "likeCount": 0,
+      "publishedAt": "formatted date",
+      "updatedAt": "formatted date",
+      "textDisplay": "string",
+      "textOriginal": "string",
+      "replyCount": 0,
+      "replies": [ /* reply objects (first page only) */ ],
+      "publishedAtRaw": "ISO 8601 timestamp",
+      "videoId": "string"
+    }
+  ],
+  "nextPageToken": "string or null",
+  "prevPageToken": "string or null"   // always null from YouTube, but included for consistency
+}
+```
+---
+
 ## Caching notes
 
 Most read endpoints are backed by short-lived in-memory server-side caches

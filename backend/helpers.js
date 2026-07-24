@@ -335,6 +335,49 @@ export function keywordMatchesPerField(snippet, { keywordTitle, keywordDescripti
   return checks.every(({ keyword, field }) => keywordMatches([field], keyword));
 }
 
+// ── Comment shaping ─────────────────────────────────────────────────────
+//
+// Shared by /api/comments and /api/all-comments so both map YouTube's
+// commentThreads.list items into the same shape (and so replies embedded
+// inline on the thread come out identical either way).
+export function shapeCommentThread(thread, videoId) {
+  const top = thread.snippet.topLevelComment;
+  const sn = top.snippet;
+  const replies = (thread.replies?.comments || []).map((reply) => {
+    const rs = reply.snippet;
+    return {
+      commentId: reply.id,
+      authorName: rs.authorDisplayName,
+      authorChannelId: rs.authorChannelId?.value || "N/A",
+      authorChannelUrl: rs.authorChannelUrl || null,
+      authorProfileImageUrl: formatAvatarUrl(rs.authorProfileImageUrl) || null,
+      likeCount: rs.likeCount ?? 0,
+      publishedAt: fmtDatetimeAt(rs.publishedAt),
+      updatedAt: fmtDatetimeAt(rs.updatedAt),
+      textDisplay: rs.textDisplay || "",
+      textOriginal: rs.textOriginal || "",
+      publishedAtRaw: rs.publishedAt,
+      videoId,
+    };
+  });
+  return {
+    commentId: top.id,
+    authorName: sn.authorDisplayName,
+    authorChannelId: sn.authorChannelId?.value || "N/A",
+    authorChannelUrl: sn.authorChannelUrl || null,
+    authorProfileImageUrl: formatAvatarUrl(sn.authorProfileImageUrl) || null,
+    likeCount: sn.likeCount ?? 0,
+    publishedAt: fmtDatetimeAt(sn.publishedAt),
+    updatedAt: fmtDatetimeAt(sn.updatedAt),
+    textDisplay: sn.textDisplay || "",
+    textOriginal: sn.textOriginal || "",
+    replyCount: thread.snippet.totalReplyCount ?? 0,
+    replies,
+    publishedAtRaw: sn.publishedAt,
+    videoId,
+  };
+}
+
 // ── Shorts detection via oEmbed ──────────────────────────────────────────
 //
 // YouTube's oEmbed endpoint (https://www.youtube.com/oembed) always reports
