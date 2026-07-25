@@ -1821,6 +1821,12 @@ function ChannelTab({ active = true }) {
   const [latestPrevToken, setLatestPrevToken] = useState(null);
   const [latestMessage, setLatestMessage] = useState("");
 
+  // ── NEW: Filter & Sort state ──
+  const [latestKeyword, setLatestKeyword] = useState("");
+  const [latestStartDate, setLatestStartDate] = useState("");
+  const [latestEndDate, setLatestEndDate] = useState("");
+  const [latestSort, setLatestSort] = useState("date-desc");
+
   const [channels, setChannels] = useState([]);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
 
@@ -1845,7 +1851,6 @@ function ChannelTab({ active = true }) {
 
   useSavedItemsChangedListener("channels", loadSavedChannels);
 
-
   const handleChannelSelect = (e) => {
     const selectedId = e.target.value;
     if (selectedId) {
@@ -1864,6 +1869,10 @@ function ChannelTab({ active = true }) {
     setLatestPrevToken(null);
     setPlaylists(null);
     setPlaylistsError("");
+    setLatestKeyword("");
+    setLatestStartDate("");
+    setLatestEndDate("");
+    setLatestSort("date-desc");
     try {
       const data = await apiGet("channel", { q: input });
       setChannel(data);
@@ -1889,6 +1898,11 @@ function ChannelTab({ active = true }) {
     setPlaylists(null);
     setPlaylistsError("");
     setPlaylistsLoading(false);
+    setLatestKeyword("");
+    setLatestStartDate("");
+    setLatestEndDate("");
+    setLatestSort("date-desc");
+    setCategoryFilter(new Set(["all"]));
   };
 
   const fetchPlaylists = async () => {
@@ -1927,6 +1941,99 @@ function ChannelTab({ active = true }) {
       setLatestLoading(false);
     }
   };
+
+  // ── NEW: Filter and sort videos ──
+  const filteredAndSortedVideos = useMemo(() => {
+    if (!latestVideos) return [];
+
+    let result = [...latestVideos];
+
+    // 1. Keyword filter (title, description, channelTitle)
+    const kw = latestKeyword.trim().toLowerCase();
+    if (kw) {
+      result = result.filter(v => {
+        const searchable = `${v.title} ${v.description || ''} ${v.channelTitle}`.toLowerCase();
+        return searchable.includes(kw);
+      });
+    }
+
+    // 2. Date range filter
+    if (latestStartDate || latestEndDate) {
+      result = result.filter(v => {
+        if (!v.publishedAtRaw) return false;
+        const day = v.publishedAtRaw.slice(0, 10);
+        if (latestStartDate && day < latestStartDate) return false;
+        if (latestEndDate && day > latestEndDate) return false;
+        return true;
+      });
+    }
+
+    // 3. Apply sorting
+    const direction = latestSort.endsWith("-asc") ? 1 : -1;
+    switch (latestSort) {
+      case "date-asc":
+      case "date-desc":
+        result.sort((a, b) => {
+          const aTime = a.publishedAtRaw ? new Date(a.publishedAtRaw).getTime() : 0;
+          const bTime = b.publishedAtRaw ? new Date(b.publishedAtRaw).getTime() : 0;
+          return (aTime - bTime) * direction;
+        });
+        break;
+      case "viewCount-asc":
+      case "viewCount-desc":
+        result.sort((a, b) => (safeNum(a.views) - safeNum(b.views)) * direction);
+        break;
+      case "likes-asc":
+      case "likes-desc":
+        result.sort((a, b) => (safeNum(a.likes) - safeNum(b.likes)) * direction);
+        break;
+      case "comments-asc":
+      case "comments-desc":
+        result.sort((a, b) => (safeNum(a.comments) - safeNum(b.comments)) * direction);
+        break;
+      case "title-asc":
+      case "title-desc":
+        result.sort((a, b) =>
+          a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }) * direction
+        );
+        break;
+      case "duration-asc":
+      case "duration-desc":
+        result.sort((a, b) => {
+          const aSeconds = getDurationSeconds(a);
+          const bSeconds = getDurationSeconds(b);
+          if (aSeconds === null && bSeconds === null) return 0;
+          if (aSeconds === null) return 1;
+          if (bSeconds === null) return -1;
+          return (aSeconds - bSeconds) * direction;
+        });
+        break;
+      default:
+        break;
+    }
+
+    return result;
+  }, [latestVideos, latestKeyword, latestStartDate, latestEndDate, latestSort]);
+
+  // Category filter applied on top of filteredAndSortedVideos
+  const displayedVideos = useMemo(() => {
+    if (!filteredAndSortedVideos) return [];
+    return filteredAndSortedVideos.filter(v => {
+      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
+      const isShort = !isLive && !!v.isShort;
+      const isStandard = !isLive && !isShort;
+      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
+    });
+  }, [filteredAndSortedVideos, categoryFilter]);
+
+  const counts = useMemo(() => {
+    if (!filteredAndSortedVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
+    const all = filteredAndSortedVideos.length;
+    const live = filteredAndSortedVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
+    const shorts = filteredAndSortedVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && !!v.isShort).length;
+    const standard = all - live - shorts;
+    return { all, standard, shorts, live };
+  }, [filteredAndSortedVideos]);
 
   const sortedPlaylists = (() => {
     if (!playlists?.length) return [];
@@ -1968,25 +2075,6 @@ function ChannelTab({ active = true }) {
       return true;
     });
   })();
-
-  const displayedVideos = useMemo(() => {
-    if (!latestVideos) return [];
-    return latestVideos.filter(v => {
-      const isLive = !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime);
-      const isShort = !isLive && !!v.isShort;
-      const isStandard = !isLive && !isShort;
-      return matchesCategoryFilter(categoryFilter, { isStandard, isShort, isLive });
-    });
-  }, [latestVideos, categoryFilter]);
-
-  const counts = useMemo(() => {
-    if (!latestVideos) return { all: 0, standard: 0, shorts: 0, live: 0 };
-    const all = latestVideos.length;
-    const live = latestVideos.filter(v => !!(v.scheduledStartTime || v.actualStartTime || v.actualEndTime)).length;
-    const shorts = latestVideos.filter(v => !(v.scheduledStartTime || v.actualStartTime || v.actualEndTime) && !!v.isShort).length;
-    const standard = all - live - shorts;
-    return { all, standard, shorts, live };
-  }, [latestVideos]);
 
   return (
     <div className="panel">
@@ -2167,6 +2255,10 @@ function ChannelTab({ active = true }) {
                         setLatestVideos(null);
                         setLatestNextToken(null);
                         setLatestPrevToken(null);
+                        setLatestKeyword("");
+                        setLatestStartDate("");
+                        setLatestEndDate("");
+                        setLatestSort("date-desc");
                       }}
                     />
                   </div>
@@ -2192,18 +2284,78 @@ function ChannelTab({ active = true }) {
                   <>
                     <ExportBar data={displayedVideos} filenameBase="channel-latest-videos" />
 
+                    {/* ── FILTERS & SORT ── */}
+                    <div className="field">
+                      <label>Filter by keyword</label>
+                      <input
+                        type="text"
+                        placeholder="Filter videos by title, description, or channel name"
+                        value={latestKeyword}
+                        onChange={(e) => setLatestKeyword(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="row">
+                      <div className="field">
+                        <label>Start date</label>
+                        <input
+                          type="date"
+                          value={latestStartDate}
+                          onChange={(e) => autoSwapDates(e.target.value, latestEndDate, setLatestStartDate, setLatestEndDate)}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>End date</label>
+                        <input
+                          type="date"
+                          value={latestEndDate}
+                          onChange={(e) => autoSwapDates(latestStartDate, e.target.value, setLatestStartDate, setLatestEndDate)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="field" style={{ maxWidth: 260 }}>
+                      <label>Sort videos by</label>
+                      <select value={latestSort} onChange={(e) => setLatestSort(e.target.value)}>
+                        <option value="date-desc">Date (newest first)</option>
+                        <option value="date-asc">Date (oldest first)</option>
+                        <option value="viewCount-desc">View count (highest first)</option>
+                        <option value="viewCount-asc">View count (lowest first)</option>
+                        <option value="likes-desc">Likes (highest first)</option>
+                        <option value="likes-asc">Likes (lowest first)</option>
+                        <option value="comments-desc">Comments (highest first)</option>
+                        <option value="comments-asc">Comments (lowest first)</option>
+                        <option value="title-asc">Title (A → Z)</option>
+                        <option value="title-desc">Title (Z → A)</option>
+                        <option value="duration-desc">Duration (longest first)</option>
+                        <option value="duration-asc">Duration (shortest first)</option>
+                      </select>
+                    </div>
+                    {/* ── END FILTERS & SORT ── */}
+
                     {/* Category buttons */}
                     <CategoryFilterButtons categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} counts={counts} />
 
                     <p className="result-count">
                       {categoryFilter.has("all")
-                        ? `Video count: ${fmtCount(latestVideos.length)}`
-                        : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(latestVideos.length)} videos`}
+                        ? `Video count: ${fmtCount(filteredAndSortedVideos.length)}`
+                        : `Showing ${fmtCount(displayedVideos.length)} of ${fmtCount(filteredAndSortedVideos.length)} videos`}
+                      {latestKeyword && <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                        {" "}(filtered by keyword)
+                      </span>}
+                      {(latestStartDate || latestEndDate) && <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                        {" "}(filtered by date)
+                      </span>}
+                      {latestSort !== "date-desc" && <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+                        {" "}(sorted by {latestSort.replace("-desc", " ↓").replace("-asc", " ↑")})
+                      </span>}
                     </p>
 
                     <div>
                       {displayedVideos.length === 0 && latestMessage ? (
                         <p className="result-count" style={{ marginTop: 4 }}>{latestMessage}</p>
+                      ) : displayedVideos.length === 0 ? (
+                        <p className="result-count" style={{ marginTop: 4 }}>No videos match the current filters.</p>
                       ) : (
                         displayedVideos.map(({ description: _desc, ...v }) => (
                           <VideoCard key={v.videoId} v={v} />
