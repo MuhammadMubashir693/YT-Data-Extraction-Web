@@ -1127,7 +1127,7 @@ app.get("/api/video", async (req, res) => {
  * @swagger
  * /api/channel-videos:
  *   get:
- *     summary: Search videos within a channel
+ *     summary: Search videos within a channel (legacy — the Search tab now uses /api/search-videos with channelId for this)
  *     parameters:
  *       - in: query
  *         name: channelId
@@ -2250,8 +2250,12 @@ app.get("/api/playlist", async (req, res) => {
  * @swagger
  * /api/search-videos:
  *   get:
- *     summary: Search videos across YouTube
+ *     summary: Search videos across YouTube (optionally scoped to a channel)
  *     parameters:
+ *       - in: query
+ *         name: channelId
+ *         description: Restrict results to videos from this channel. When provided, no other filter (keyword/date/duration) is required.
+ *         schema: { type: string }
  *       - in: query
  *         name: keyword
  *         schema: { type: string }
@@ -2323,6 +2327,8 @@ app.get("/api/search-videos", async (req, res) => {
       matchMode,
     } = req.query;
 
+    const channelId = (req.query.channelId || "").trim();
+
     const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
       (k) => k && k.trim()
     );
@@ -2338,9 +2344,11 @@ app.get("/api/search-videos", async (req, res) => {
         .filter((d) => ["short", "medium", "long"].includes(d))
     )].sort();
 
-    // Validate at least one filter is provided
-    if (!keyword && !hasPerField && !startDate && !endDate && !durations.length) {
-      return res.status(400).json({ error: "Provide a keyword, date range, or duration type" });
+    // Validate at least one filter is provided — a channelId counts as a
+    // filter on its own (it scopes the search to that channel's uploads),
+    // so it's fine to pass just a channelId with no keyword/date/duration.
+    if (!channelId && !keyword && !hasPerField && !startDate && !endDate && !durations.length) {
+      return res.status(400).json({ error: "Provide a channel ID, keyword, date range, or duration type" });
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
@@ -2353,6 +2361,7 @@ app.get("/api/search-videos", async (req, res) => {
     // count needs its own fetch (order=viewCount) so the top-viewed videos
     // for the query aren't skipped in favor of merely the most recent ones.
     const svKey = cacheKey({
+      channelId,
       keyword: keyword || "",
       keywordTitle: keywordTitle || "",
       keywordDescription: keywordDescription || "",
@@ -2374,6 +2383,8 @@ app.get("/api/search-videos", async (req, res) => {
         order: apiOrder,
         type: "video",
       };
+
+      if (channelId) baseParams.channelId = channelId;
 
       // Use the primary keyword for YouTube's q parameter
       const apiKeyword = (keyword || keywordTitle || "").trim();

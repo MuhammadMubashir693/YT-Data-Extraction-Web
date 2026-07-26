@@ -235,7 +235,7 @@ Responses:
 
 ## GET `/api/channel-videos`
 
-Description: Search/filter videos within a specific channel. Uses YouTube's search API under the hood, then filters and sorts server-side.
+Description: Search/filter videos within a specific channel. Uses YouTube's search API under the hood, then filters and sorts server-side. Legacy — the Search tab's video search now uses `/api/search-videos` with an optional `channelId` for this instead (see below); this endpoint remains available for direct API use.
 
 Query parameters:
 
@@ -575,10 +575,11 @@ Errors:
 
 ## GET `/api/search-videos`
 
-Description: General video search across all of YouTube (not scoped to a channel).
+Description: Video search across YouTube, optionally scoped to a single channel. This is the endpoint used by the Search tab's video search — the `channelId` parameter takes the place of the old separate "search within channel" mode.
 
-Query parameters: same as `/api/channel-videos`, minus `channelId` and `mode` (search mode is implied by whichever keyword/date/duration params are given).
+Query parameters: same as `/api/channel-videos`, minus `mode` (search mode is implied by whichever keyword/date/duration params are given), plus `channelId` is now optional here instead of required.
 
+- `channelId` — optional; restricts results to videos uploaded by this channel
 - `keyword`, `keywordTitle`, `keywordDescription`, `keywordChannel`
 - `startDate`, `endDate`
 - `durationFilter` — `short` | `medium` | `long`
@@ -586,7 +587,7 @@ Query parameters: same as `/api/channel-videos`, minus `channelId` and `mode` (s
 - `maxResults` — integer, 1–500 (default 50)
 - `sort` — same options as `/api/channel-videos`
 
-At least one of `keyword`/per-field keyword, a date range, or `durationFilter` must be provided.
+At least one of `channelId`, `keyword`/per-field keyword, a date range, or `durationFilter` must be provided. A `channelId` on its own (with no other filter) is valid — it returns that channel's videos.
 
 Response: `200 OK`
 
@@ -596,7 +597,7 @@ Response: `200 OK`
 
 Errors:
 
-- `400 Bad Request` — no keyword, date range, or duration filter provided
+- `400 Bad Request` — no channelId, keyword, date range, or duration filter provided
 
 ---
 

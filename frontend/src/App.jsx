@@ -757,11 +757,9 @@ function SearchTab() {
   const [category, setCategory] = useState("video");
 
   // Video search state
-  const [searchType, setSearchType] = useState("channel"); // 'channel' | 'general'
   const [channels, setChannels] = useState([]);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [channelId, setChannelId] = useState("");
-  const [useCustomChannel, setUseCustomChannel] = useState(false);
-  const [customChannelId, setCustomChannelId] = useState("");
   const [keyword, setKeyword] = useState("");
   const [usePerFieldKeywords, setUsePerFieldKeywords] = useState(false);
   const [keywordTitle, setKeywordTitle] = useState("");
@@ -771,7 +769,6 @@ function SearchTab() {
   const [sortOption, setSortOption] = useState("relevance");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [useDateRange, setUseDateRange] = useState(false);
   const [useDuration, setUseDuration] = useState(false);
   const [durationFilter, setDurationFilter] = useState(() => new Set(["medium"]));
   const [liveFilter, setLiveFilter] = useState(false);
@@ -845,15 +842,10 @@ function SearchTab() {
     try {
       const data = await apiGet("channels");
       setChannels(data);
-      if (data.length) {
-        if (!data.some((c) => c.id === channelId)) {
-          setChannelId(data[0].id);
-        }
-      } else {
-        setChannelId("");
-      }
     } catch {
       // ignore
+    } finally {
+      setChannelsLoaded(true);
     }
   };
 
@@ -874,9 +866,7 @@ function SearchTab() {
 
   const resetAll = () => {
     clearResults();
-    setSearchType("channel");
-    setUseCustomChannel(false);
-    setCustomChannelId("");
+    setChannelId("");
     setKeyword("");
     setUsePerFieldKeywords(false);
     setKeywordTitle("");
@@ -886,7 +876,6 @@ function SearchTab() {
     setSortOption("relevance");
     setStartDate("");
     setEndDate("");
-    setUseDateRange(false);
     setUseDuration(false);
     setDurationFilter(new Set(["medium"]));
     setChKeyword("");
@@ -910,48 +899,28 @@ function SearchTab() {
     setLoading(true);
     try {
       if (category === "video") {
-        const isChannelSearch = searchType === "channel";
-        if (isChannelSearch) {
-          const resolvedChannelId = useCustomChannel ? customChannelId.trim() : channelId;
-          const params = { channelId: resolvedChannelId, mode: "keyword", matchMode };
-          if (usePerFieldKeywords) {
-            if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
-            if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
-            if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
-          } else {
-            params.keyword = keyword;
-          }
-          if (useDateRange) {
-            params.startDate = startDate;
-            params.endDate = endDate;
-          }
-          if (useDuration && durationFilter.size) params.durationFilter = [...durationFilter].join(",");
-          if (sortOption) params.sort = sortOption;
-          params.maxResults = maxResults;
-          const data = await apiGet("channel-videos", params);
-          setVideos(data.videos);
-        } else {
-          const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
-          const hasKeyword = usePerFieldKeywords ? hasPerField : Boolean(keyword.trim());
-          const hasDateRange = useDateRange && Boolean(startDate || endDate);
-          const hasDurationFilter = useDuration && durationFilter.size > 0;
-          if (!hasKeyword && !hasDateRange && !hasDurationFilter) {
-            throw new Error("Provide a keyword, date range, or duration type to search");
-          }
-          const params = { sort: sortOption, maxResults, matchMode };
-          if (usePerFieldKeywords) {
-            if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
-            if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
-            if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
-          } else {
-            params.keyword = keyword;
-          }
-          if (startDate) params.startDate = startDate;
-          if (endDate) params.endDate = endDate;
-          if (hasDurationFilter) params.durationFilter = [...durationFilter].join(",");
-          const data = await apiGet("search-videos", params);
-          setVideos(data.videos);
+        const trimmedChannelId = channelId.trim();
+        const hasPerField = usePerFieldKeywords && (keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim());
+        const hasKeyword = usePerFieldKeywords ? hasPerField : Boolean(keyword.trim());
+        const hasDateRange = Boolean(startDate || endDate);
+        const hasDurationFilter = useDuration && durationFilter.size > 0;
+        if (!trimmedChannelId && !hasKeyword && !hasDateRange && !hasDurationFilter) {
+          throw new Error("Provide a channel ID, keyword, date range, or duration type to search");
         }
+        const params = { sort: sortOption, maxResults, matchMode };
+        if (trimmedChannelId) params.channelId = trimmedChannelId;
+        if (usePerFieldKeywords) {
+          if (keywordTitle.trim()) params.keywordTitle = keywordTitle.trim();
+          if (keywordDescription.trim()) params.keywordDescription = keywordDescription.trim();
+          if (keywordChannel.trim()) params.keywordChannel = keywordChannel.trim();
+        } else {
+          params.keyword = keyword;
+        }
+        if (startDate) params.startDate = startDate;
+        if (endDate) params.endDate = endDate;
+        if (hasDurationFilter) params.durationFilter = [...durationFilter].join(",");
+        const data = await apiGet("search-videos", params);
+        setVideos(data.videos);
       } else if (category === "channel") {
         if (!chKeyword.trim()) throw new Error("Keyword is required for channel search");
         const params = { keyword: chKeyword.trim(), maxResults };
@@ -1004,8 +973,6 @@ function SearchTab() {
     }
   };
 
-  const isChannelSearch = searchType === "channel";
-
   // Validate max results
   const maxNum = Number(maxResults);
   const maxResultsInvalid = !maxResults || maxNum < 1 || maxNum > 500;
@@ -1014,14 +981,12 @@ function SearchTab() {
     if (loading) return true;
     if (maxResultsInvalid) return true;
     if (category === "video") {
-      if (isChannelSearch && !useCustomChannel && !channelId) return true;
-      if (isChannelSearch && useCustomChannel && !customChannelId.trim()) return true;
       const hasKeyword = usePerFieldKeywords
         ? Boolean(keywordTitle.trim() || keywordDescription.trim() || keywordChannel.trim())
         : Boolean(keyword.trim());
-      const hasDateRange = useDateRange && Boolean(startDate || endDate);
+      const hasDateRange = Boolean(startDate || endDate);
       const hasDurationFilter = useDuration && durationFilter.size > 0;
-      if (!hasKeyword && !hasDateRange && !hasDurationFilter) return true;
+      if (!channelId.trim() && !hasKeyword && !hasDateRange && !hasDurationFilter) return true;
       if (useDuration && durationFilter.size === 0) return true;
     } else if (category === "channel") {
       if (!chKeyword.trim()) return true;
@@ -1107,85 +1072,44 @@ function SearchTab() {
         {/* ══ VIDEO fields ══ */}
         {category === "video" && (
           <>
+            {/* ── Channel ID (optional) — pick a saved channel or type one in ── */}
+            <SavedItemSelect
+              items={channels}
+              loaded={channelsLoaded}
+              onSelect={setChannelId}
+              label="Channel ID (optional)"
+              placeholder="-- Choose a saved channel --"
+            />
             <div className="field">
-              <label>Search type</label>
-              <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
-                <option value="channel">Search within channel</option>
-                <option value="general">Search generally</option>
-              </select>
+              <input
+                type="text"
+                placeholder="Or enter a channel ID manually (e.g. UCxxxxxxxxxxxxxxxxxxxxxx) to restrict the search to that channel"
+                value={channelId}
+                onChange={(e) => setChannelId(e.target.value)}
+              />
             </div>
 
-            {/* ── Channel selector ── */}
-            {isChannelSearch && (
-              <div className="field">
-                <label>Channel</label>
-                <label className="checkbox-row" style={{ marginBottom: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={useCustomChannel}
-                    onChange={(e) => {
-                      setUseCustomChannel(e.target.checked);
-                      setCustomChannelId("");
-                    }}
-                  />
-                  Specify a custom channel ID
-                </label>
-                {useCustomChannel ? (
-                  <input
-                    type="text"
-                    placeholder="Enter channel ID manually (e.g. UCxxxxxxxxxxxxxxxxxxxxxx)"
-                    value={customChannelId}
-                    onChange={(e) => setCustomChannelId(e.target.value)}
-                  />
-                ) : channels.length ? (
-                  <select value={channelId} onChange={(e) => setChannelId(e.target.value)}>
-                    {channels.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
-                    ))}
-                  </select>
-                ) : (
-                  <p style={{ margin: 0, opacity: 0.6, fontsize: 14 }}>
-                    No saved channels. Add some in the <b>Manage Channels</b> tab, or check the box above to enter an ID manually.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* ── Keyword fields (channel search) ── */}
-            {isChannelSearch && (
-              <>
-                {keywordFields}
-                <label className="checkbox-row">
-                  <input type="checkbox" checked={useDateRange} onChange={(e) => setUseDateRange(e.target.checked)} />
-                  Filter by date range
-                </label>
-              </>
-            )}
-
-            {/* ── Keyword fields (general search) ── */}
-            {!isChannelSearch && keywordFields}
+            {keywordFields}
 
             {/* ── Date range inputs ── */}
-            {((!isChannelSearch) || (isChannelSearch && useDateRange)) && (
-              <div className="row">
-                <div className="field">
-                  <label>Start date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)}
-                  />
-                </div>
-                <div className="field">
-                  <label>End date</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)}
-                  />
-                </div>
+            <div className="row">
+              <div className="field">
+                <label>Start date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => autoSwapDates(e.target.value, endDate, setStartDate, setEndDate)}
+                />
               </div>
-            )}
+              <div className="field">
+                <label>End date</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => autoSwapDates(startDate, e.target.value, setStartDate, setEndDate)}
+                />
+              </div>
+            </div>
 
             <label className="checkbox-row">
               <input type="checkbox" checked={useDuration} onChange={(e) => setUseDuration(e.target.checked)} />
@@ -1275,11 +1199,17 @@ function SearchTab() {
                 <input type="text" placeholder="e.g. cooking basics" value={plKeyword} onChange={(e) => setPlKeyword(e.target.value)} />
               </div>
             )}
+            <SavedItemSelect
+              items={channels}
+              loaded={channelsLoaded}
+              onSelect={setPlChannelId}
+              label="Channel ID (optional)"
+              placeholder="-- Choose a saved channel --"
+            />
             <div className="field">
-              <label>Channel ID (optional)</label>
               <input
                 type="text"
-                placeholder="Restrict to playlists from a specific channel (e.g. UCxxxxxxxxxxxxxxxxxxxxxx)"
+                placeholder="Or enter a channel ID manually (e.g. UCxxxxxxxxxxxxxxxxxxxxxx) to restrict to playlists from that channel"
                 value={plChannelId}
                 onChange={(e) => setPlChannelId(e.target.value)}
               />
