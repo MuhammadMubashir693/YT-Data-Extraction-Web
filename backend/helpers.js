@@ -456,7 +456,8 @@ export function shapeVideo(item, idOverride) {
     tags: Array.isArray(sid.tags) ? sid.tags : [],
     defaultLanguage: getLanguageName(sid.defaultLanguage) || "N/A",
     defaultAudioLanguage: getLanguageName(sid.defaultAudioLanguage) || "N/A",
-    category: getCategoryName(sid.categoryId) || null,
+    categoryId: sid.categoryId || null,
+    categoryName: getCategoryName(sid.categoryId) || null,
     regionRestriction: cdet.regionRestriction ? {
       ...cdet.regionRestriction,
       blocked: cdet.regionRestriction.blocked?.map(fmtCountry) || []
