@@ -1088,6 +1088,8 @@ app.get("/api/video", async (req, res) => {
       const item = data.items[0];
       shaped = shapeVideo(item, vid);
 
+      await attachShortsFlags([shaped]);
+
       // Single-item lookup only — fetch the uploading channel's avatar so the
       // Video Player tab can show a small channel profile picture. Not done
       // for list endpoints (search/playlist/channel-videos) to avoid an extra
