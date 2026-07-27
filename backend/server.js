@@ -2147,13 +2147,25 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
     pageNumber += 1;
   } while (nextPage);
 
-  let items = [];
+  // Unlike the playlistItems pagination above, these batches don't depend on
+  // each other's results (no pageToken chaining) — each is just "give me
+  // details for these 50 IDs" — so they can be fired off in parallel instead
+  // of awaited one at a time. This is the main win for huge playlists: a
+  // 2,000-video playlist is ~40 batches, which was 40 sequential round-trips
+  // before and is now a single Promise.all wave.
+  const batchPromises = [];
   for (let i = 0; i < videoIds.length; i += 50) {
     const batch = videoIds.slice(i, i + 50);
-    const vresp = await ytFetch("videos", {
-      part: "snippet,contentDetails,statistics,liveStreamingDetails",
-      id: batch.join(","),
-    });
+    batchPromises.push(
+      ytFetch("videos", {
+        part: "snippet,contentDetails,statistics,liveStreamingDetails",
+        id: batch.join(","),
+      })
+    );
+  }
+  const batchResponses = await Promise.all(batchPromises);
+  const items = [];
+  for (const vresp of batchResponses) {
     items.push(...(vresp.items || []));
   }
 
