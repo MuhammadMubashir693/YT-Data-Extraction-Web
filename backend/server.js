@@ -17,7 +17,6 @@ import {
   fmtDatetimeAt,
   fmtCountry,
   keywordMatches,
-  keywordMatchesPerField,
   shapeVideo,
   shapeCommentThread,
   durationToSeconds,
@@ -248,12 +247,11 @@ const commentsCache = createCache({ ttlMs: 3 * 60 * 1000, maxEntries: 100 });
 // Next/Previous doesn't re-fetch a page already seen.
 const allCommentsCache = createCache({ ttlMs: 10 * 60 * 1000, maxEntries: 300 });
 
-// Search-style endpoints (channel-videos, search-videos, search-channels,
+// Search-style endpoints (search-videos, search-channels,
 // search-playlists) all follow the same shape: page through `search`,
 // batch-fetch full details, then filter. That whole pipeline is cached
 // keyed on every param that affects it (everything except `sort`), so
 // re-sorting existing results is instant instead of re-querying YouTube.
-const channelVideosCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
 const searchVideosCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
 const searchChannelsCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
 const searchPlaylistsCache = createCache({ ttlMs: 5 * 60 * 1000, maxEntries: 100 });
@@ -1092,7 +1090,7 @@ app.get("/api/video", async (req, res) => {
 
       // Single-item lookup only — fetch the uploading channel's avatar so the
       // Video Player tab can show a small channel profile picture. Not done
-      // for list endpoints (search/playlist/channel-videos) to avoid an extra
+      // for list endpoints (search/playlist) to avoid an extra
       // API call per item.
       try {
         const channelId = item.snippet?.channelId;
@@ -1117,186 +1115,6 @@ app.get("/api/video", async (req, res) => {
         error: "The video could not be found. Please check the video ID or URL."
       });
     }
-    handleError(res, err);
-  }
-});
-
-// ── Part 2 – Channel search / filter ──────────────────────────────────────
-
-/**
- * @swagger
- * /api/channel-videos:
- *   get:
- *     summary: Search videos within a channel (legacy — the Search tab now uses /api/search-videos with channelId for this)
- *     parameters:
- *       - in: query
- *         name: channelId
- *         required: true
- *         schema: { type: string }
- *       - in: query
- *         name: mode
- *         schema: { type: string, enum: [keyword, date] }
- *       - in: query
- *         name: keyword
- *         schema: { type: string }
- *       - in: query
- *         name: keywordTitle
- *         schema: { type: string }
- *       - in: query
- *         name: keywordDescription
- *         schema: { type: string }
- *       - in: query
- *         name: keywordChannel
- *         schema: { type: string }
- *       - in: query
- *         name: startDate
- *         schema: { type: string, format: date }
- *       - in: query
- *         name: endDate
- *         schema: { type: string, format: date }
- *       - in: query
- *         name: durationFilter
- *         schema: { type: string, enum: [short, medium, long] }
- *       - in: query
- *         name: matchMode
- *         schema: { type: string, enum: [every, some] }
- *       - in: query
- *         name: maxResults
- *         schema: { type: integer, minimum: 1, maximum: 500 }
- *       - in: query
- *         name: sort
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Videos array
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 videos: { type: array }
- *                 count: { type: integer }
- */
-
-app.get("/api/channel-videos", async (req, res) => {
-  try {
-    const {
-      channelId,
-      mode, // 'keyword' | 'date'
-      keyword,
-      keywordTitle,
-      keywordDescription,
-      keywordChannel,
-      startDate,
-      endDate,
-      durationFilter, // 'short' | 'medium' | 'long'
-      matchMode,      // 'every' | 'some'
-    } = req.query;
-
-    if (!channelId) {
-      return res.status(400).json({ error: "channelId is required" });
-    }
-
-    const limit = Math.min(Math.max(parseInt(req.query.maxResults, 10) || 50, 1), 500);
-
-    // Determine if we're in per-field mode
-    const hasPerField = [keywordTitle, keywordDescription, keywordChannel].some(
-      (k) => k && k.trim()
-    );
-
-    // Paging through search + batch-fetching full video details is the
-    // expensive part. Cache the filtered-but-unsorted result set keyed on
-    // every param that affects it (i.e. everything except `sort`), so
-    // changing just the sort dropdown re-sorts in memory instead of
-    // re-running the whole search.
-    const cvSort = String(req.query.sort || "relevance").toLowerCase();
-    const cvApiOrder = apiOrderForSort(cvSort);
-
-    // `cvApiOrder` (derived from `sort`) is part of the cache key because it
-    // changes which videos the YouTube API returns, not just how we display
-    // them — e.g. sorting by view count needs its own fetch (order=viewCount)
-    // so the channel's top-viewed videos matching the query aren't skipped
-    // in favor of merely the most recent ones.
-    const cvKey = cacheKey({
-      channelId, mode, keyword, keywordTitle, keywordDescription, keywordChannel,
-      startDate, endDate, durationFilter, matchMode, limit, cvApiOrder,
-    });
-    let fullItems = channelVideosCache.get(cvKey);
-    if (!fullItems) {
-      // For the YouTube search API q= param, use the combined keyword or the title keyword as the
-      // primary signal (the real filtering is done server-side after fetching full details)
-      const apiKeyword = keyword || keywordTitle || "";
-
-      const params = {
-        part: "snippet",
-        channelId,
-        maxResults: 50,
-        order: cvApiOrder,
-        type: "video",
-      };
-      if (durationFilter) params.videoDuration = durationFilter;
-      if (startDate) params.publishedAfter = `${startDate}T00:00:00Z`;
-      if (endDate) params.publishedBefore = `${endDate}T23:59:59Z`;
-      if (mode === "keyword" && apiKeyword) params.q = apiKeyword;
-
-      let videoIds = [];
-      let nextPage;
-      let pageNumber = 0;
-      do {
-        const p = { ...params };
-        if (nextPage) p.pageToken = nextPage;
-        const resp = await ytFetchWithPaginationDelay("search", p, pageNumber);
-        for (const item of resp.items || []) {
-          const vidId = item.id?.videoId;
-          if (vidId) videoIds.push(vidId);
-        }
-        nextPage = resp.nextPageToken;
-        if (videoIds.length >= limit) break;
-        pageNumber += 1;
-      } while (nextPage);
-
-      videoIds = videoIds.slice(0, limit);
-
-      if (!videoIds.length) {
-        fullItems = [];
-      } else {
-        fullItems = [];
-        for (let i = 0; i < videoIds.length; i += 50) {
-          const batch = videoIds.slice(i, i + 50);
-          const vresp = await ytFetch("videos", {
-            part: "snippet,contentDetails,statistics,liveStreamingDetails",
-            id: batch.join(","),
-          });
-          fullItems.push(...(vresp.items || []));
-        }
-
-        if (mode === "keyword") {
-          if (hasPerField) {
-            fullItems = fullItems.filter((v) =>
-              keywordMatchesPerField(v.snippet, { keywordTitle, keywordDescription, keywordChannel }, matchMode)
-            );
-          } else if (keyword) {
-            fullItems = fullItems.filter((v) =>
-              keywordMatches([v.snippet.title, v.snippet.description, v.snippet.channelTitle], keyword, matchMode)
-            );
-          }
-        }
-      }
-
-      channelVideosCache.set(cvKey, fullItems);
-    }
-
-    if (!fullItems.length) {
-      return res.json({ videos: [], count: 0 });
-    }
-
-    const sortedItems = fullItems.slice();
-    sortVideos(sortedItems, cvSort);
-
-    const videos = sortedItems.map((v) => shapeVideo(v));
-    await attachShortsFlags(videos);
-    res.json({ videos, count: videos.length });
-  } catch (err) {
     handleError(res, err);
   }
 });
@@ -1972,7 +1790,7 @@ app.get("/api/comment-replies", async (req, res) => {
  * @swagger
  * /api/all-comments:
  *   get:
- *     summary: Get one page of top-level comment threads on a video (cached)
+ *     summary: Get one page of top-level comment threads on a video
  *     parameters:
  *       - in: query
  *         name: q

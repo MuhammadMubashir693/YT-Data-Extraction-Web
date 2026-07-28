@@ -178,7 +178,7 @@ lookup endpoint documented below):
 
 ## Video object shape
 
-Every endpoint that returns video data (`/api/video`, `/api/channel-videos`,
+Every endpoint that returns video data (`/api/video`,
 `/api/channel-latest-videos`, `/api/playlist`, `/api/search-videos`) uses
 this same shape:
 
@@ -233,33 +233,9 @@ Responses:
 
 ---
 
-## GET `/api/channel-videos`
-
-Description: Search/filter videos within a specific channel. Uses YouTube's search API under the hood, then filters and sorts server-side. Legacy — the Search tab's video search now uses `/api/search-videos` with an optional `channelId` for this instead (see below); this endpoint remains available for direct API use.
-
-Query parameters:
-
-- `channelId` (required)
-- `mode` — `keyword` or `date`. In `keyword` mode, the query is applied both at the YouTube API level (`q=`) and again server-side after fetching full details. In `date` mode, only the date range is applied.
-- `keyword` — combined keyword matched against title, description, and channel title
-- `keywordTitle`, `keywordDescription`, `keywordChannel` — per-field keywords; if any of these are set, per-field matching is used instead of the combined `keyword`
-- `startDate`, `endDate` — `YYYY-MM-DD`
-- `durationFilter` — `short` | `medium` | `long`
-- `matchMode` — `every` | `some` (applies to per-field keyword matching)
-- `maxResults` — integer, 1–500 (default 50)
-- `sort` — one of `date-asc`/`date-desc`, `viewcount-asc`/`viewcount-desc`, `rating-asc`/`rating-desc`, `title-asc`/`title-desc`, `duration-asc`/`duration-desc` (default: unsorted/relevance order)
-
-Response: `200 OK`
-
-```json
-{ "videos": [ /* video objects */ ], "count": 12 }
-```
-
----
-
 ## GET `/api/channel-latest-videos`
 
-Description: Fetch a channel's most recent uploads via its uploads playlist — cheaper on API quota than `/api/channel-videos`, and paginated using YouTube's own tokens.
+Description: Fetch a channel's most recent uploads via its uploads playlist — cheaper on API quota than a full channel search, and paginated using YouTube's own tokens.
 
 Query parameters:
 
@@ -532,7 +508,7 @@ over an already-fully-fetched (and cached) copy of the playlist.
 Query parameters:
 
 - `q` (required) — playlist ID or URL containing `list=`
-- `sort` — same options as `/api/channel-videos` (default: `date-asc`)
+- `sort` — one of `date-asc`/`date-desc`, `viewcount-asc`/`viewcount-desc`, `rating-asc`/`rating-desc`, `title-asc`/`title-desc`, `duration-asc`/`duration-desc` (default: `date-asc`)
 - `maxResults` — integer, 1–500 (default 50) — page size
 - `pageToken` — a numeric string offset (**not** a YouTube token) from a previous response's `nextPageToken`
 
@@ -577,7 +553,7 @@ Errors:
 
 Description: Video search across YouTube, optionally scoped to a single channel. This is the endpoint used by the Search tab's video search — the `channelId` parameter takes the place of the old separate "search within channel" mode.
 
-Query parameters: same as `/api/channel-videos`, minus `mode` (search mode is implied by whichever keyword/date/duration params are given), plus `channelId` is now optional here instead of required.
+Query parameters:
 
 - `channelId` — optional; restricts results to videos uploaded by this channel
 - `keyword`, `keywordTitle`, `keywordDescription`, `keywordChannel`
@@ -585,7 +561,7 @@ Query parameters: same as `/api/channel-videos`, minus `mode` (search mode is im
 - `durationFilter` — `short` | `medium` | `long`
 - `matchMode` — `every` | `some`
 - `maxResults` — integer, 1–500 (default 50)
-- `sort` — same options as `/api/channel-videos`
+- `sort` — one of `date-asc`/`date-desc`, `viewcount-asc`/`viewcount-desc`, `rating-asc`/`rating-desc`, `title-asc`/`title-desc`, `duration-asc`/`duration-desc` (default: unsorted/relevance order)
 
 At least one of `channelId`, `keyword`/per-field keyword, a date range, or `durationFilter` must be provided. A `channelId` on its own (with no other filter) is valid — it returns that channel's videos.
 
