@@ -91,7 +91,7 @@ Errors:
 
 ## Saved Channels (MongoDB)
 
-### GET `/api/channels`
+### GET `/api/saved-channels`
 
 Description: Return all saved channels from MongoDB.
 
@@ -104,7 +104,7 @@ Response: `200 OK`, JSON array of `{ name, id }` objects.
 ]
 ```
 
-### POST `/api/channels`
+### POST `/api/saved-channels`
 
 Description: Add a saved channel.
 
@@ -116,7 +116,7 @@ Responses:
 - `400 Bad Request` — missing `name` or `id`
 - `409 Conflict` — a channel with that `id` already exists
 
-### PUT `/api/channels/:currentId`
+### PUT `/api/saved-channels/:currentId`
 
 Description: Update a saved channel's name and/or id.
 
@@ -130,7 +130,7 @@ Responses:
 - `404 Not Found` — no saved channel with `currentId`
 - `409 Conflict` — another saved channel already uses the new `id`
 
-### DELETE `/api/channels/:id`
+### DELETE `/api/saved-channels/:id`
 
 Description: Delete a saved channel.
 
@@ -143,23 +143,23 @@ Responses:
 
 ## Saved Videos (MongoDB)
 
-Same shape and semantics as Saved Channels, under `/api/videos`:
+Same shape and semantics as Saved Channels, under `/api/saved-videos`:
 
-- `GET /api/videos`
-- `POST /api/videos` — body `{ name, id }`
-- `PUT /api/videos/:currentId` — body `{ name, id }`
-- `DELETE /api/videos/:id`
+- `GET /api/saved-videos`
+- `POST /api/saved-videos` — body `{ name, id }`
+- `PUT /api/saved-videos/:currentId` — body `{ name, id }`
+- `DELETE /api/saved-videos/:id`
 
 ---
 
 ## Saved Playlists (MongoDB)
 
-Same shape and semantics as Saved Channels, under `/api/playlists`:
+Same shape and semantics as Saved Channels, under `/api/saved-playlists`:
 
-- `GET /api/playlists`
-- `POST /api/playlists` — body `{ name, id }`
-- `PUT /api/playlists/:currentId` — body `{ name, id }`
-- `DELETE /api/playlists/:id`
+- `GET /api/saved-playlists`
+- `POST /api/saved-playlists` — body `{ name, id }`
+- `PUT /api/saved-playlists/:currentId` — body `{ name, id }`
+- `DELETE /api/saved-playlists/:id`
 
 ---
 

@@ -480,7 +480,7 @@ async function loadChannels() {
 
 /**
  * @swagger
- * /api/channels:
+ * /api/saved-channels:
  *   get:
  *     summary: Get all saved channels
  *     responses:
@@ -499,7 +499,7 @@ async function loadChannels() {
  *                     type: string
  */
 
-app.get("/api/channels", async (req, res) => {
+app.get("/api/saved-channels", async (req, res) => {
   try {
     const channels = await loadChannels();
     res.json(channels);
@@ -510,7 +510,7 @@ app.get("/api/channels", async (req, res) => {
 
 /**
  * @swagger
- * /api/channels:
+ * /api/saved-channels:
  *   post:
  *     summary: Add a new channel
  *     requestBody:
@@ -533,7 +533,7 @@ app.get("/api/channels", async (req, res) => {
  *         description: Channel already exists
  */
 
-app.post("/api/channels", async (req, res) => {
+app.post("/api/saved-channels", async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     const id = String(req.body.id || "").trim();
@@ -552,7 +552,7 @@ app.post("/api/channels", async (req, res) => {
 
 /**
  * @swagger
- * /api/channels/{currentId}:
+ * /api/saved-channels/{currentId}:
  *   put:
  *     summary: Update a saved channel
  *     parameters:
@@ -575,7 +575,7 @@ app.post("/api/channels", async (req, res) => {
  *       409: { description: ID conflict }
  */
 
-app.put("/api/channels/:currentId", async (req, res) => {
+app.put("/api/saved-channels/:currentId", async (req, res) => {
   try {
     const currentId = req.params.currentId;
     const name = String(req.body.name || "").trim();
@@ -594,7 +594,7 @@ app.put("/api/channels/:currentId", async (req, res) => {
 
 /**
  * @swagger
- * /api/channels/{id}:
+ * /api/saved-channels/{id}:
  *   delete:
  *     summary: Delete a saved channel
  *     parameters:
@@ -607,7 +607,7 @@ app.put("/api/channels/:currentId", async (req, res) => {
  *       404: { description: Channel not found }
  */
 
-app.delete("/api/channels/:id", async (req, res) => {
+app.delete("/api/saved-channels/:id", async (req, res) => {
   try {
     const result = await deleteManagedResource(getChannelCollection, req.params.id);
     res.json(result);
@@ -621,7 +621,7 @@ app.delete("/api/channels/:id", async (req, res) => {
 
 /**
  * @swagger
- * /api/videos:
+ * /api/saved-videos:
  *   get:
  *     summary: Get all saved videos
  *     responses:
@@ -640,7 +640,7 @@ app.delete("/api/channels/:id", async (req, res) => {
  *                     type: string
  */
 
-app.get("/api/videos", async (req, res) => {
+app.get("/api/saved-videos", async (req, res) => {
   try {
     if (!savedVideoCollection) return res.json([]);
     const videos = await loadManagedResource(getSavedVideoCollection);
@@ -652,7 +652,7 @@ app.get("/api/videos", async (req, res) => {
 
 /**
  * @swagger
- * /api/videos:
+ * /api/saved-videos:
  *   post:
  *     summary: Add a new saved video
  *     requestBody:
@@ -675,7 +675,7 @@ app.get("/api/videos", async (req, res) => {
  *         description: Video already exists
  */
 
-app.post("/api/videos", async (req, res) => {
+app.post("/api/saved-videos", async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     const id = String(req.body.id || "").trim();
@@ -694,7 +694,7 @@ app.post("/api/videos", async (req, res) => {
 
 /**
  * @swagger
- * /api/videos/{currentId}:
+ * /api/saved-videos/{currentId}:
  *   put:
  *     summary: Update a saved video
  *     parameters:
@@ -717,7 +717,7 @@ app.post("/api/videos", async (req, res) => {
  *       409: { description: ID conflict }
  */
 
-app.put("/api/videos/:currentId", async (req, res) => {
+app.put("/api/saved-videos/:currentId", async (req, res) => {
   try {
     const currentId = req.params.currentId;
     const name = String(req.body.name || "").trim();
@@ -736,7 +736,7 @@ app.put("/api/videos/:currentId", async (req, res) => {
 
 /**
  * @swagger
- * /api/videos/{id}:
+ * /api/saved-videos/{id}:
  *   delete:
  *     summary: Delete a saved video
  *     parameters:
@@ -749,7 +749,7 @@ app.put("/api/videos/:currentId", async (req, res) => {
  *       404: { description: Video not found }
  */
 
-app.delete("/api/videos/:id", async (req, res) => {
+app.delete("/api/saved-videos/:id", async (req, res) => {
   try {
     const result = await deleteManagedResource(getSavedVideoCollection, req.params.id);
     res.json(result);
@@ -763,7 +763,7 @@ app.delete("/api/videos/:id", async (req, res) => {
 
 /**
  * @swagger
- * /api/playlists:
+ * /api/saved-playlists:
  *   get:
  *     summary: Get all saved playlists
  *     responses:
@@ -782,7 +782,7 @@ app.delete("/api/videos/:id", async (req, res) => {
  *                     type: string
  */
 
-app.get("/api/playlists", async (req, res) => {
+app.get("/api/saved-playlists", async (req, res) => {
   try {
     if (!savedPlaylistCollection) return res.json([]);
     const playlists = await loadManagedResource(getSavedPlaylistCollection);
@@ -794,7 +794,7 @@ app.get("/api/playlists", async (req, res) => {
 
 /**
  * @swagger
- * /api/playlists:
+ * /api/saved-playlists:
  *   post:
  *     summary: Add a new saved playlist
  *     requestBody:
@@ -817,7 +817,7 @@ app.get("/api/playlists", async (req, res) => {
  *         description: Playlist already exists
  */
 
-app.post("/api/playlists", async (req, res) => {
+app.post("/api/saved-playlists", async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     const id = String(req.body.id || "").trim();
@@ -836,7 +836,7 @@ app.post("/api/playlists", async (req, res) => {
 
 /**
  * @swagger
- * /api/playlists/{currentId}:
+ * /api/saved-playlists/{currentId}:
  *   put:
  *     summary: Update a saved playlist
  *     parameters:
@@ -859,7 +859,7 @@ app.post("/api/playlists", async (req, res) => {
  *       409: { description: ID conflict }
  */
 
-app.put("/api/playlists/:currentId", async (req, res) => {
+app.put("/api/saved-playlists/:currentId", async (req, res) => {
   try {
     const currentId = req.params.currentId;
     const name = String(req.body.name || "").trim();
@@ -878,7 +878,7 @@ app.put("/api/playlists/:currentId", async (req, res) => {
 
 /**
  * @swagger
- * /api/playlists/{id}:
+ * /api/saved-playlists/{id}:
  *   delete:
  *     summary: Delete a saved playlist
  *     parameters:
@@ -891,7 +891,7 @@ app.put("/api/playlists/:currentId", async (req, res) => {
  *       404: { description: Playlist not found }
  */
 
-app.delete("/api/playlists/:id", async (req, res) => {
+app.delete("/api/saved-playlists/:id", async (req, res) => {
   try {
     const result = await deleteManagedResource(getSavedPlaylistCollection, req.params.id);
     res.json(result);

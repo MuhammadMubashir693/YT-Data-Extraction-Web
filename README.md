@@ -235,9 +235,9 @@ The backend exposes a JSON API under `/api`:
 - `GET /api/comment?q=<id|url-with-lc>` — fetch a single comment by ID or `lc=` URL parameter.
 - `GET /api/comments?q=<videoId|url>&sort=top|latest|earliest|likes-desc|likes-asc&keyword=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&pageToken=...&maxResults=<1-50>` — fetch comment threads with replies for a video.
 - `GET /api/comment-replies?parentId=...&videoId=...&pageToken=...&maxResults=<1-50>` — fetch (paginated) replies for a top-level comment. `videoId` is optional but recommended — YouTube's API doesn't reliably include it on reply objects, so passing the parent thread's known `videoId` keeps in-comment timestamp links working.
-- `GET /api/channels` / `POST /api/channels` / `PUT /api/channels/:currentId` / `DELETE /api/channels/:id` — manage saved channels (MongoDB-backed). Body: `{ name, id }`.
-- `GET /api/videos` / `POST /api/videos` / `PUT /api/videos/:currentId` / `DELETE /api/videos/:id` — manage saved videos (MongoDB-backed). Body: `{ name, id }`.
-- `GET /api/playlists` / `POST /api/playlists` / `PUT /api/playlists/:currentId` / `DELETE /api/playlists/:id` — manage saved playlists (MongoDB-backed). Body: `{ name, id }`.
+- `GET /api/saved-channels` / `POST /api/saved-channels` / `PUT /api/saved-channels/:currentId` / `DELETE /api/saved-channels/:id` — manage saved channels (MongoDB-backed). Body: `{ name, id }`.
+- `GET /api/saved-videos` / `POST /api/saved-videos` / `PUT /api/saved-videos/:currentId` / `DELETE /api/saved-videos/:id` — manage saved videos (MongoDB-backed). Body: `{ name, id }`.
+- `GET /api/saved-playlists` / `POST /api/saved-playlists` / `PUT /api/saved-playlists/:currentId` / `DELETE /api/saved-playlists/:id` — manage saved playlists (MongoDB-backed). Body: `{ name, id }`.
 - `GET /api/saved-comments` / `POST /api/saved-comments` / `PUT /api/saved-comments/:currentId` / `DELETE /api/saved-comments/:id` — manage saved comments (MongoDB-backed). Body: `{ name, id }`. (Not `/api/comments` — that path is used by the comment-threads lookup endpoint above.)
 - `GET /api/all-comments?q=<videoId|url>&pageToken=...` – fetch one page of top‑level comment threads (ordered by latest first), used by the Comment Picker tab. Returns nextPageToken and prevPageToken (the latter is always null from YouTube; the client maintains its own token history for backward navigation).
 

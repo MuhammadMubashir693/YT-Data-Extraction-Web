@@ -634,7 +634,7 @@ function VideoTab() {
   const [video, setVideo] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("saved-videos", "yt-data-saved-videos");
 
   const submit = async (e) => {
     e.preventDefault();
@@ -840,7 +840,7 @@ function SearchTab() {
 
   const refreshChannels = async () => {
     try {
-      const data = await apiGet("channels");
+      const data = await apiGet("saved-channels");
       setChannels(data);
     } catch {
       // ignore
@@ -853,7 +853,7 @@ function SearchTab() {
     refreshChannels();
   }, []);
 
-  useSavedItemsChangedListener("channels", refreshChannels);
+  useSavedItemsChangedListener("saved-channels", refreshChannels);
 
   const clearResults = () => {
     setVideos(null);
@@ -1680,7 +1680,7 @@ function ChannelManagerTab() {
   return (
     <ManagedResourceTab
       title="Manage Channels"
-      apiPath="channels"
+      apiPath="saved-channels"
       storageKey="yt-data-saved-channels"
       entityLabel="channel"
       idLabel="Channel ID"
@@ -1693,7 +1693,7 @@ function VideoManagerTab() {
   return (
     <ManagedResourceTab
       title="Manage Videos"
-      apiPath="videos"
+      apiPath="saved-videos"
       storageKey="yt-data-saved-videos"
       entityLabel="video"
       idLabel="Video ID"
@@ -1706,7 +1706,7 @@ function PlaylistManagerTab() {
   return (
     <ManagedResourceTab
       title="Manage Playlists"
-      apiPath="playlists"
+      apiPath="saved-playlists"
       storageKey="yt-data-saved-playlists"
       entityLabel="playlist"
       idLabel="Playlist ID"
@@ -1764,7 +1764,7 @@ function ChannelTab({ active = true }) {
 
   const loadSavedChannels = async () => {
     try {
-      const data = await apiGet("channels");
+      const data = await apiGet("saved-channels");
       setChannels(Array.isArray(data) ? data : []);
     } catch {
       // Fallback to local storage if backend is unavailable
@@ -1779,7 +1779,7 @@ function ChannelTab({ active = true }) {
     loadSavedChannels();
   }, []);
 
-  useSavedItemsChangedListener("channels", loadSavedChannels);
+  useSavedItemsChangedListener("saved-channels", loadSavedChannels);
 
   const handleChannelSelect = (e) => {
     const selectedId = e.target.value;
@@ -2415,7 +2415,7 @@ function CommentsTab({ active = true }) {
   const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [replyPages, setReplyPages] = useState({});
-  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("saved-videos", "yt-data-saved-videos");
   // manual "View more" style: do not auto-load on scroll for top-level threads
 
   // Keyword, date range, and sort are all applied live over whatever threads
@@ -2718,7 +2718,7 @@ function CommentPickerTab() {
   const [videoId, setVideoId] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("saved-videos", "yt-data-saved-videos");
 
   // Page state
   const [pageTokens, setPageTokens] = useState([null]); // first page uses null token
@@ -3033,7 +3033,7 @@ function PlaylistTab({ active = true }) {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [categoryFilter, setCategoryFilter] = useState(() => new Set(["all"]));
-  const { items: savedPlaylists, loaded: savedPlaylistsLoaded } = useSavedItems("playlists", "yt-data-saved-playlists");
+  const { items: savedPlaylists, loaded: savedPlaylistsLoaded } = useSavedItems("saved-playlists", "yt-data-saved-playlists");
 
   const filteredVideos = (() => {
     if (!playlistVideos?.length) return [];
@@ -3295,7 +3295,7 @@ function VideoPlayerTab() {
   const [video, setVideo] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("videos", "yt-data-saved-videos");
+  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("saved-videos", "yt-data-saved-videos");
 
   const submit = async (e) => {
     e.preventDefault();
