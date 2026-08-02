@@ -69,6 +69,9 @@ async function initMongo() {
 await initMongo();
 
 function getChannelCollection() {
+  // Return the cached Mongo collection for saved channels.
+  // Throws a clear error when the Mongo client hasn't finished
+  // initializing so callers fail fast instead of operating on `null`.
   if (!channelCollection) {
     throw new Error("MongoDB is not connected");
   }
@@ -90,6 +93,9 @@ function getSavedPlaylistCollection() {
 }
 
 function getSavedCommentCollection() {
+  // Return the cached Mongo collection for saved comments.
+  // This mirrors the other `get*Collection` helpers and centralizes
+  // the connection-checking behavior in one place.
   if (!savedCommentCollection) {
     throw new Error("MongoDB is not connected");
   }
@@ -323,6 +329,8 @@ async function attachShortsFlags(videos) {
  *         description: Missing url
  *       502:
  *         description: Proxy error
+ *       500:
+ *         description: Internal server error
  */
 
 app.get("/api/proxy-image", async (req, res) => {
@@ -408,6 +416,9 @@ function isPlaylistNotFoundError(err) {
 }
 
 function handleError(res, err) {
+  // Map known error shapes to appropriate HTTP responses so callers
+  // get a meaningful status code (403 for quota/comments-disabled,
+  // 404 where callers already translate, and 500 for unexpected failures).
   const apiMsg = err?.response?.data?.error?.message;
   if (isCommentsDisabledError(err)) {
     return res.status(403).json({
@@ -419,7 +430,9 @@ function handleError(res, err) {
       error: apiMsg || "YouTube API quota exceeded. Try again tomorrow.",
     });
   }
-  res.status(500).json({ error: apiMsg || err.message || "Unknown error" });
+  // Default to 500 for unanticipated errors. Include a message when
+  // available to help debugging clients; do not leak sensitive info.
+  res.status(500).json({ error: apiMsg || err.message || "Internal server error" });
 }
 
 function sortVideos(items, sort) {
@@ -1061,6 +1074,7 @@ app.delete("/api/saved-comments/:id", async (req, res) => {
  *       200: { description: Video object }
  *       400: { description: Invalid video ID }
  *       404: { description: Video not found }
+ *       500: { description: Internal server error }
  */
 
 app.get("/api/video", async (req, res) => {
@@ -1257,6 +1271,7 @@ app.get("/api/channel-latest-videos", async (req, res) => {
  *       200: { description: Channel object }
  *       400: { description: Invalid channel input }
  *       404: { description: Channel not found }
+ *       500: { description: Internal server error }
  */
 
 app.get("/api/channel", async (req, res) => {
@@ -1560,6 +1575,7 @@ app.get("/api/comment", async (req, res) => {
  *       400: { description: Invalid format }
  *       403: { description: Comments disabled}
  *       404: { description: Video not found}
+ *       500: { description: Internal server error }
  */
 
 app.get("/api/comments", async (req, res) => {
@@ -2022,6 +2038,8 @@ async function fetchFullPlaylistFromYouTube(playlistId) {
  *                 videos: { type: array }
  *                 count: { type: integer }
  *                 nextPageToken: { type: string }
+ *       500:
+ *         description: Internal server error
  */
 
 app.get("/api/playlist", async (req, res) => {
@@ -2126,6 +2144,8 @@ app.get("/api/playlist", async (req, res) => {
  *               properties:
  *                 videos: { type: array }
  *                 count: { type: integer }
+ *       500:
+ *         description: Internal server error
  */
 
 // Maps a client-facing `sort` value to the YouTube Data API's `order`

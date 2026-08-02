@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from "react";
 
+// `ImageWithFallback` attempts to load the provided `src` directly and,
+// on error, retries through a small server-side proxy (`/api/proxy-image`)
+// to avoid CORS or remote-hosted restrictions. This keeps the UI simple
+// while improving thumbnail reliability.
 const PROXY_PREFIX = "/api/proxy-image?url=";
 
 export default function ImageWithFallback({ src, alt, className, style, ...props }) {

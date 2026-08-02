@@ -34,6 +34,8 @@ export const CATEGORY_MAP = {
 };
 
 export function getCategoryName(categoryId) {
+  // Return a human-friendly category name or a fallback when the
+  // category id is missing/unknown.
   if (categoryId === null || categoryId === undefined) return "N/A";
   return CATEGORY_MAP[categoryId] || `Unknown (${categoryId})`;
 }
@@ -155,6 +157,9 @@ export const LANGUAGE_MAP = {
 };
 
 export function getLanguageName(languageCode) {
+  // Map a short language code to a display name. If the code is not
+  // recognised, return the original code so callers still have something
+  // to show instead of a blank.
   if (!languageCode || languageCode === 'N/A') return 'N/A';
   return LANGUAGE_MAP[languageCode] || languageCode;
 }

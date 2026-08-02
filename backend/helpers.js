@@ -11,6 +11,9 @@ countries.registerLocale(en);
 // ── ID parsers ───────────────────────────────────────────────────────────
 
 export function parseVideoId(text) {
+  // Normalize and accept either a bare video ID or a variety of YouTube URL
+  // forms (watch?v=, youtu.be, /embed/, /shorts/). Returns the 11-char ID
+  // or `null` when the input can't be parsed.
   text = (text || "").trim();
   if (/^[A-Za-z0-9_-]{11}$/.test(text)) return text;
 
@@ -38,6 +41,9 @@ export function parseVideoId(text) {
 }
 
 export async function parseChannelId(text, ytFetch) {
+  // Parse a channel identifier from either an ID, full URL (channel/,@handle,c/user)
+  // or a bare handle. When a handle is encountered this resolves it via the
+  // YouTube API (using the provided `ytFetch`) to obtain the canonical channel ID.
   text = (text || "").trim();
   if (/^UC[A-Za-z0-9_-]{22}$/.test(text)) return text;
 
@@ -81,6 +87,9 @@ export async function parseChannelId(text, ytFetch) {
 }
 
 async function resolveHandle(handle, ytFetch) {
+  // Try to resolve modern `forHandle` first, fall back to the legacy
+  // `forUsername` parameter. Fail quietly and return `null` on network
+  // errors so callers can handle unknown handles gracefully.
   try {
     let resp = await ytFetch("channels", { part: "id", forHandle: handle });
     if (resp.items?.length) return resp.items[0].id;
@@ -88,12 +97,14 @@ async function resolveHandle(handle, ytFetch) {
     resp = await ytFetch("channels", { part: "id", forUsername: handle });
     if (resp.items?.length) return resp.items[0].id;
   } catch {
-    // ignore
+    // ignore network/parse errors
   }
   return null;
 }
 
 export function parseCommentId(text) {
+  // Accept either a raw comment ID (alphanum/._- >= 8 chars) or parse the
+  // `lc` / `commentId` query parameter from a pasted comment URL.
   text = (text || "").trim();
   // Allow dots, underscores, hyphens, alphanumerics, at least 8 chars.
   // Exclude pure 11‑character video IDs.
@@ -111,6 +122,8 @@ export function parseCommentId(text) {
 }
 
 export function parsePlaylistId(text) {
+  // Accept common playlist ID prefixes (PL, UU, LL, etc.) or extract the
+  // `list` query param from a URL.
   text = (text || "").trim();
   // PL = regular playlist, UU = channel uploads, LL = liked videos,
   // FL = favorites (legacy), WL = watch later, RD = mix/radio
@@ -128,6 +141,8 @@ export function parsePlaylistId(text) {
 // ── Formatting helpers ──────────────────────────────────────────────────
 
 export function fmtDatetime(isoStr) {
+  // Format an ISO timestamp into a human-friendly UTC string used
+  // throughout the UI (e.g. "Tuesday, January 1, 2020 13:04:05 UTC").
   const dt = new Date(isoStr);
   return dt.toLocaleString("en-US", {
     weekday: "long",
@@ -175,6 +190,8 @@ export function durationToSeconds(isoDur) {
 }
 
 export function fmtDuration(isoDur) {
+  // Convert an ISO-8601 duration string into a readable phrase such as
+  // "4 minutes 13 seconds". Returns "0 seconds" when parsing fails.
   let total;
   try {
     total = Math.floor(toSeconds(parseISODuration(isoDur)));
@@ -211,6 +228,8 @@ export function fmtCountry(code) {
  * Non-numeric strings such as "N/A" are returned unchanged.
  */
 export function fmtCount(value) {
+  // Present numeric counts in both full and compact forms for the UI,
+  // e.g. "1,234 (1.2K)". Non-numeric strings are returned unchanged.
   if (value === null || value === undefined) return "N/A";
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
@@ -238,6 +257,11 @@ const STOP_WORDS = new Set([
 ]);
 
 export function keywordMatches(fields, keyword, matchMode = "every") {
+  // Tokenize the keyword, strip stop words and short tokens, and then
+  // perform word-boundary matches (with a simple plural allowance).
+  // `matchMode` controls whether all tokens must match (`every`) or
+  // only some (`some`). Returning `true` when the sanitized token list
+  // becomes empty treats queries made up only of stop words as a match-all.
   if (!keyword) return false;
   const hay = Array.isArray(fields) ? fields.join(" ") : String(fields || "");
   const hayLower = hay.toLowerCase();
@@ -271,7 +295,8 @@ export function keywordMatches(fields, keyword, matchMode = "every") {
 // In helpers.js
 export function formatAvatarUrl(url) {
   if (!url) return null;
-  // Replace any =sXX with =s88 (where XX is one or more digits)
+  // Normalize avatar size query to a fixed display size so all avatars
+  // in the UI are consistent and not tiny/huge depending on the original.
   return url.replace(/=s\d+/, '=s88');
 }
 
@@ -399,6 +424,10 @@ export function shapeCommentThread(thread, videoId) {
 const OEMBED_TIMEOUT_MS = 4000;
 
 export async function fetchIsShortViaOEmbed(videoId) {
+  // Uses YouTube's oEmbed endpoint against the `/shorts/` URL form to
+  // determine the reported player dimensions. True Shorts return height
+  // > width. Fail closed (return `false`) on timeouts/network errors so
+  // a single flaky lookup doesn't break list pages.
   try {
     const url = `https://www.youtube.com/oembed?url=${encodeURIComponent(
       `https://www.youtube.com/shorts/${videoId}`
@@ -427,6 +456,9 @@ export async function fetchIsShortViaOEmbed(videoId) {
 // ── Video shaping ───────────────────────────────────────────────────────
 
 export function shapeVideo(item, idOverride) {
+  // Map a raw `videos.list` item into the compact shape the frontend
+  // expects. `idOverride` is used when the incoming `item.id` is an
+  // object (e.g. from search.list) and the explicit videoId is needed.
   const sid = item.snippet;
   const cdet = item.contentDetails || {};
   const stat = item.statistics || {};

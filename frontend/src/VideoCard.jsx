@@ -1,4 +1,7 @@
 // frontend/src/VideoCard.jsx
+// Presents a single video's details in a compact card used across
+// Search/Playlist/Channel/Video views. Keeps rendering logic simple and
+// delegates thumbnail loading and linkifying to small helper components.
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";

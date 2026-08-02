@@ -1,4 +1,6 @@
 // frontend/src/PlaylistCard.jsx
+// Simple card for displaying playlist metadata used by playlist results
+// and the Playlist Details view. Mirrors VideoCard's presentation style.
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import { fmtCount } from "./format.js";

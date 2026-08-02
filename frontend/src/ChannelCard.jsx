@@ -1,4 +1,7 @@
 // frontend/src/ChannelCard.jsx
+// Small presentational component showing basic channel metadata and
+// description. Intentionally minimal — the heavy lifting (fetching,
+// shaping) happens on the backend; this component only displays it.
 import React from "react";
 import ImageWithFallback from "./ImageWithFallback.jsx";
 import LinkifiedText from "./LinkifiedText.jsx";

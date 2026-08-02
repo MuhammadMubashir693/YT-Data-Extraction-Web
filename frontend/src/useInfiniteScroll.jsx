@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
+// Hook that reports whether the user has scrolled near the bottom of the
+// page or an optional container. Returns a `containerRef` you can attach
+// to a scrollable element and an `isNearBottom` boolean that flips true
+// when the scroll position crosses the `threshold` fraction.
 export function useInfiniteScroll({ threshold = 0.8, enabled = true }) {
   const [isNearBottom, setIsNearBottom] = useState(false);
   const containerRef = useRef(null);

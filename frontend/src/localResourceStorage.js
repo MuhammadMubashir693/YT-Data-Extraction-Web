@@ -1,6 +1,13 @@
+// A tiny localStorage-backed fallback for saved channels/videos/playlists
+// used when no MongoDB backend is available. The backend endpoints use
+// MongoDB when possible and fall back to the same keys in localStorage so
+// the UI can work in a standalone/browser-only mode.
 const DEFAULT_STORAGE_KEY = "yt-data-saved-channels";
 
 function getStorage() {
+  // Prefer `window.localStorage` in the browser; fall back to a global
+  // `localStorage` if available (e.g. during SSR tests). Return `null`
+  // when storage isn't accessible so callers can gracefully handle it.
   const storage = typeof window !== "undefined" ? window.localStorage : null;
   if (storage) return storage;
   try {
