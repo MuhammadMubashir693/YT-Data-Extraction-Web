@@ -1160,6 +1160,8 @@ app.get("/api/video", async (req, res) => {
  *         schema: { type: string }
  *     responses:
  *       200: { description: Videos array with pagination tokens }
+ *       400: { description: Missing count }
+ *       404: { description: Channel uploads playlist not found }
  */
 
 app.get("/api/channel-latest-videos", async (req, res) => {
