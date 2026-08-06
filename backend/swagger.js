@@ -11,12 +11,16 @@ const options = {
     },
     servers: [
       {
-        url: "http://localhost:5000",
-        description: "Development server",
+        url: process.env.NODE_ENV === "production" 
+          ? "https://yt-data-extraction-web.onrender.com"
+          : "http://localhost:5000",
+        description: process.env.NODE_ENV === "production" 
+          ? "Production server" 
+          : "Development server",
       },
     ],
   },
-  apis: ["./server.js"], // Path to the file with JSDoc comments
+  apis: ["./server.js"],
 };
 
 export default swaggerJsdoc(options);
