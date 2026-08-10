@@ -3294,26 +3294,64 @@ function PlaylistTab({ active = true }) {
 
 // ── Tab: Video Player ────────────────────────────────────────────────────
 
+// ── Tab: Video Player ────────────────────────────────────────────────────
+
 function VideoPlayerTab() {
   const [input, setInput] = useState("");
   const [videoId, setVideoId] = useState(null);
   const [video, setVideo] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { items: savedVideos, loaded: savedVideosLoaded } = useSavedItems("saved-videos", "yt-data-saved-videos");
+
+  // Comment state
+  const [threads, setThreads] = useState([]);
+  const [commentCount, setCommentCount] = useState(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState("");
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [sort, setSort] = useState("top");
+  const [expandedThreads, setExpandedThreads] = useState({});
+  const [replyPages, setReplyPages] = useState({});
+  const [nextPageToken, setNextPageToken] = useState(null);
+  const [hasMoreComments, setHasMoreComments] = useState(false);
+
+  const { items: savedVideos, loaded: savedVideosLoaded } =
+    useSavedItems("saved-videos", "yt-data-saved-videos");
+
+  // Match the Comment Threads tab: sorting is applied locally to whatever
+  // top-level threads have already been loaded. Changing the sort therefore
+  // does not trigger another API request.
+  const displayedThreads = sortThreadsClient(threads, sort);
 
   const submit = async (e) => {
     e.preventDefault();
+
     setError("");
     setVideoId(null);
     setVideo(null);
+
+    // Reset comments whenever a new video is loaded
+    setThreads([]);
+    setCommentCount(null);
+    setCommentsLoading(false);
+    setCommentsError("");
+    setCommentsLoaded(false);
+    setSort("top");
+    setExpandedThreads({});
+    setReplyPages({});
+    setNextPageToken(null);
+    setHasMoreComments(false);
+
     const id = parseVideoId(input.trim());
+
     if (!id) {
       setError("Could not extract a valid video ID from the input.");
       return;
     }
+
     setVideoId(id);
     setLoading(true);
+
     try {
       const data = await apiGet("video", { q: input });
       setVideo(data);
@@ -3322,6 +3360,115 @@ function VideoPlayerTab() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ── Load comments only when the user explicitly clicks Load Comments ──
+  const fetchCommentsPage = async ({ pageToken = null, append = false } = {}) => {
+    if (!videoId) return;
+
+    setCommentsError("");
+    setCommentsLoading(true);
+
+    try {
+      const params = {
+        q: videoId,
+        // Keep pagination stable, just like the Comment Threads tab.
+        // The selected sort is applied client-side by sortThreadsClient().
+        sort: "top",
+        maxResults: 50,
+      };
+
+      if (pageToken) {
+        params.pageToken = pageToken;
+      }
+
+      const data = await apiGet("comments", params);
+      const newThreads = data.threads || [];
+
+      setThreads((prev) =>
+        append ? [...prev, ...newThreads] : newThreads
+      );
+
+      setCommentCount(data.commentCount ?? null);
+      setNextPageToken(data.nextPageToken || null);
+      setHasMoreComments(Boolean(data.hasMore));
+
+      if (!append) {
+        setExpandedThreads({});
+        setReplyPages({});
+      }
+
+      // Initialize reply state for every new thread
+      setReplyPages((prev) => {
+        const next = { ...prev };
+
+        newThreads.forEach((thread) => {
+          if (!next[thread.commentId]) {
+            next[thread.commentId] = {
+              replies: thread.replies || [],
+              hasMore:
+                thread.replyCount > (thread.replies?.length || 0),
+              nextPageToken: null,
+              loading: false,
+            };
+          }
+        });
+
+        return next;
+      });
+
+      setCommentsLoaded(true);
+    } catch (err) {
+      setCommentsError(err.message);
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  const loadComments = async () => {
+    if (!videoId || commentsLoading) return;
+
+    // If comments were already loaded, don't fetch them again.
+    if (commentsLoaded) return;
+
+    await fetchCommentsPage({
+      pageToken: null,
+      append: false,
+    });
+  };
+
+  const loadMoreComments = async () => {
+    if (!nextPageToken || commentsLoading) return;
+
+    await fetchCommentsPage({
+      pageToken: nextPageToken,
+      append: true,
+    });
+  };
+
+  const toggleReplies = (threadId) => {
+    setExpandedThreads((prev) => ({
+      ...prev,
+      [threadId]: !prev[threadId],
+    }));
+  };
+
+  const reset = () => {
+    setInput("");
+    setVideoId(null);
+    setVideo(null);
+    setError("");
+
+    setThreads([]);
+    setCommentCount(null);
+    setCommentsLoading(false);
+    setCommentsError("");
+    setCommentsLoaded(false);
+    setSort("top");
+    setExpandedThreads({});
+    setReplyPages({});
+    setNextPageToken(null);
+    setHasMoreComments(false);
   };
 
   return (
@@ -3334,6 +3481,7 @@ function VideoPlayerTab() {
           label="Select saved video"
           placeholder="-- Choose a saved video --"
         />
+
         <div className="field">
           <label>Video ID or URL</label>
           <input
@@ -3343,27 +3491,30 @@ function VideoPlayerTab() {
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
+
         <div className="row" style={{ gap: 12, marginBottom: 14 }}>
-          <button className="primary" disabled={loading || !input.trim()}>
+          <button
+            className="primary"
+            disabled={loading || !input.trim()}
+          >
             {loading && <Spinner />}
             Load Video
           </button>
+
           <button
             type="button"
             className="secondary"
             disabled={loading}
-            onClick={() => {
-              setInput("");
-              setVideoId(null);
-              setVideo(null);
-              setError("");
-            }}
+            onClick={reset}
           >
             Reset
           </button>
         </div>
       </form>
+
       <ErrorBox message={error} />
+
+      {/* ── Video Player ─────────────────────────────────────────────── */}
       {videoId && (
         <div style={{ marginTop: 16 }}>
           <div
@@ -3393,6 +3544,7 @@ function VideoPlayerTab() {
               }}
             />
           </div>
+
           {video?.channelThumbnail && (
             <div style={{ marginTop: 10 }}>
               <ImageWithFallback
@@ -3404,10 +3556,256 @@ function VideoPlayerTab() {
           )}
         </div>
       )}
+
+      {/* ── Video Details ───────────────────────────────────────────── */}
       {video && (
         <div style={{ marginTop: 16 }}>
-          <ExportBar data={video} filenameBase="video-details" />
-          <VideoCard v={video} showTags />
+          <ExportBar
+            data={video}
+            filenameBase="video-details"
+          />
+          <VideoCard
+            v={video}
+            showTags
+          />
+        </div>
+      )}
+
+      {/* ── Comments ────────────────────────────────────────────────── */}
+      {videoId && (
+        <div
+          className="panel"
+          style={{
+            marginTop: 20,
+            background: "var(--panel-2)",
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>
+            Comment Threads
+          </h3>
+
+          {/* Same sort selector as Comment Threads.
+              It is available before loading, but changing it never
+              automatically fetches comments. */}
+          <div className="field">
+            <label>Sort comments</label>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="top">Top comments</option>
+              <option value="latest">Latest first</option>
+              <option value="earliest">Earliest first</option>
+              <option value="likes-desc">Likes (highest first)</option>
+              <option value="likes-asc">Likes (lowest first)</option>
+            </select>
+          </div>
+
+          {!commentsLoaded && (
+            <div>
+              <p
+                style={{
+                  color: "var(--muted)",
+                  marginTop: 0,
+                }}
+              >
+                Comments are not loaded automatically.
+                Click below to load the comment threads for this video.
+              </p>
+
+              <button
+                type="button"
+                className="primary"
+                onClick={loadComments}
+                disabled={commentsLoading}
+              >
+                {commentsLoading && <Spinner />}
+                Load Comments
+              </button>
+            </div>
+          )}
+
+          <ErrorBox message={commentsError} />
+
+          {commentsLoaded && (
+            <div style={{ marginTop: 16 }}>
+              <p className="result-count">
+                Comment count:{" "}
+                {commentCount != null
+                  ? fmtCount(commentCount)
+                  : "N/A"}
+              </p>
+
+              <ExportBar
+                data={displayedThreads.map((thread) => ({
+                  ...thread,
+                  replies:
+                    replyPages[thread.commentId]?.replies ??
+                    thread.replies ??
+                    [],
+                }))}
+                filenameBase="video-comments"
+              />
+
+              {displayedThreads.length === 0 ? (
+                <p
+                  className="result-count"
+                  style={{ marginTop: 8 }}
+                >
+                  No comments found for this video.
+                </p>
+              ) : (
+                displayedThreads.map((thread) => (
+                  <div
+                    key={thread.commentId}
+                    className="comment-thread"
+                  >
+                    <CommentCard comment={thread}>
+                      {thread.replyCount > 0 && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ marginTop: 10 }}
+                          onClick={() =>
+                            toggleReplies(thread.commentId)
+                          }
+                        >
+                          {expandedThreads[thread.commentId]
+                            ? "Hide replies"
+                            : `Show replies (${thread.replyCount})`}
+                        </button>
+                      )}
+
+                      {expandedThreads[thread.commentId] && (
+                        <RepliesList
+                          thread={thread}
+                          active={true}
+                          replyState={
+                            replyPages[thread.commentId] || {
+                              replies: thread.replies || [],
+                              hasMore:
+                                thread.replyCount >
+                                (thread.replies?.length || 0),
+                              nextPageToken: null,
+                              loading: false,
+                            }
+                          }
+                          loadMoreReplies={async () => {
+                            const pageState =
+                              replyPages[thread.commentId] || {
+                                replies: thread.replies || [],
+                                hasMore:
+                                  thread.replyCount >
+                                  (thread.replies?.length || 0),
+                                nextPageToken: null,
+                                loading: false,
+                              };
+
+                            if (
+                              !pageState.hasMore ||
+                              pageState.loading
+                            ) {
+                              return;
+                            }
+
+                            setReplyPages((prev) => ({
+                              ...prev,
+                              [thread.commentId]: {
+                                ...pageState,
+                                loading: true,
+                              },
+                            }));
+
+                            try {
+                              const params = {
+                                parentId: thread.commentId,
+                              };
+
+                              if (thread.videoId) {
+                                params.videoId = thread.videoId;
+                              }
+
+                              if (pageState.nextPageToken) {
+                                params.pageToken =
+                                  pageState.nextPageToken;
+                              }
+
+                              const data = await apiGet(
+                                "comment-replies",
+                                params
+                              );
+
+                              setReplyPages((prev) => {
+                                const current =
+                                  prev[thread.commentId] ||
+                                  pageState;
+
+                                const existingIds = new Set(
+                                  current.replies.map(
+                                    (reply) => reply.commentId
+                                  )
+                                );
+
+                                const newReplies =
+                                  data.replies.filter(
+                                    (reply) =>
+                                      !existingIds.has(
+                                        reply.commentId
+                                      )
+                                  );
+
+                                return {
+                                  ...prev,
+                                  [thread.commentId]: {
+                                    replies: [
+                                      ...current.replies,
+                                      ...newReplies,
+                                    ],
+                                    hasMore: Boolean(
+                                      data.hasMore
+                                    ),
+                                    nextPageToken:
+                                      data.nextPageToken ||
+                                      null,
+                                    loading: false,
+                                  },
+                                };
+                              });
+                            } catch (err) {
+                              setCommentsError(
+                                err.message ||
+                                "Failed to load replies."
+                              );
+
+                              setReplyPages((prev) => ({
+                                ...prev,
+                                [thread.commentId]: {
+                                  ...pageState,
+                                  loading: false,
+                                },
+                              }));
+                            }
+                          }}
+                        />
+                      )}
+                    </CommentCard>
+                  </div>
+                ))
+              )}
+
+              {hasMoreComments && (
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={loadMoreComments}
+                    disabled={commentsLoading}
+                  >
+                    {commentsLoading
+                      ? "Loading..."
+                      : "View more comments"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
