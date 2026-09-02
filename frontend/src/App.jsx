@@ -3300,6 +3300,7 @@ function VideoPlayerTab() {
   const [input, setInput] = useState("");
   const [videoId, setVideoId] = useState(null);
   const [video, setVideo] = useState(null);
+  const [showVideoDetails, setShowVideoDetails] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -3329,6 +3330,7 @@ function VideoPlayerTab() {
     setError("");
     setVideoId(null);
     setVideo(null);
+    setShowVideoDetails(false);
 
     // Reset comments whenever a new video is loaded
     setThreads([]);
@@ -3372,9 +3374,9 @@ function VideoPlayerTab() {
     try {
       const params = {
         q: videoId,
-        // Keep pagination stable, just like the Comment Threads tab.
-        // The selected sort is applied client-side by sortThreadsClient().
-        sort: "top",
+        // Keep pagination stable while honoring the selected API ordering.
+        // The selected sort is also applied client-side by sortThreadsClient().
+        sort,
         maxResults: 50,
       };
 
@@ -3457,6 +3459,7 @@ function VideoPlayerTab() {
     setInput("");
     setVideoId(null);
     setVideo(null);
+    setShowVideoDetails(false);
     setError("");
 
     setThreads([]);
@@ -3554,11 +3557,20 @@ function VideoPlayerTab() {
               />
             </div>
           )}
+
+          <button
+            type="button"
+            className="secondary"
+            style={{ marginTop: 12 }}
+            onClick={() => setShowVideoDetails((visible) => !visible)}
+          >
+            {showVideoDetails ? "Hide Video Details" : "Show Video Details"}
+          </button>
         </div>
       )}
 
       {/* ── Video Details ───────────────────────────────────────────── */}
-      {video && (
+      {video && showVideoDetails && (
         <div style={{ marginTop: 16 }}>
           <ExportBar
             data={video}
@@ -3606,8 +3618,6 @@ function VideoPlayerTab() {
                   marginTop: 0,
                 }}
               >
-                Comments are not loaded automatically.
-                Click below to load the comment threads for this video.
               </p>
 
               <button

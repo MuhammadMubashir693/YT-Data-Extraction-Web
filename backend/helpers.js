@@ -56,7 +56,7 @@ export async function parseChannelId(text, ytFetch) {
       let m = path.match(/^\/channel\/(UC[A-Za-z0-9_-]{22})$/);
       if (m) return m[1];
 
-      m = path.match(/^\/(?:@([^/]+)|c\/([^/]+)|user\/([^/]+))$/);
+      m = path.match(/^\/(?:@([^/]+)|c\/([^/]+)|user\/([^/]+)(?:\/.*)?)$/);
       if (m) {
         const handle = m[1] || m[2] || m[3];
         return await resolveHandle(handle, ytFetch);
