@@ -87,15 +87,24 @@ export async function parseChannelId(text, ytFetch) {
 }
 
 async function resolveHandle(handle, ytFetch) {
-  // Try to resolve modern `forHandle` first, fall back to the legacy
-  // `forUsername` parameter. Fail quietly and return `null` on network
-  // errors so callers can handle unknown handles gracefully.
+  // Try direct channel lookups first. Legacy custom URLs (`/c/name`) are not
+  // supported by either `forHandle` or `forUsername`, so fall back to a
+  // channel-only search for those names.
   try {
     let resp = await ytFetch("channels", { part: "id", forHandle: handle });
     if (resp.items?.length) return resp.items[0].id;
 
     resp = await ytFetch("channels", { part: "id", forUsername: handle });
     if (resp.items?.length) return resp.items[0].id;
+
+    resp = await ytFetch("search", {
+      part: "id",
+      q: handle,
+      type: "channel",
+      maxResults: 1,
+    });
+    const channelId = resp.items?.[0]?.id?.channelId;
+    if (channelId) return channelId;
   } catch {
     // ignore network/parse errors
   }
