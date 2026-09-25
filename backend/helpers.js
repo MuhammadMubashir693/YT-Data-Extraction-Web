@@ -512,5 +512,6 @@ export function shapeVideo(item, idOverride) {
     // video is never both live and a Short, so this starts false and is
     // only ever set true for non-live videos.
     isShort: false,
+    isLive: Object.keys(liveDetails).length > 0
   };
 }

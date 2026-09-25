@@ -1307,7 +1307,7 @@ app.get("/api/channel", async (req, res) => {
       if (trailerVideoId) {
         try {
           const trailerData = await ytFetch("videos", {
-            part: "snippet,contentDetails,statistics",
+            part: "snippet,contentDetails,statistics,liveStreamingDetails",
             id: trailerVideoId,
           });
           if (trailerData.items?.length) {
